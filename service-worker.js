@@ -1,4 +1,4 @@
-const CACHE_NAME = "geo-quest-v16";
+const CACHE_NAME = "geo-quest-v17";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -16,7 +16,11 @@ const APP_SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  // Without cache: "reload" a new worker happily fills its fresh cache from the browser's
+  // stale HTTP cache, so a deploy can install and still serve the previous build.
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => (
+    cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" })))
+  )));
   self.skipWaiting();
 });
 

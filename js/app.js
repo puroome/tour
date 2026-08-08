@@ -197,6 +197,44 @@ function showToast(message) {
   state.toastTimer = setTimeout(() => toast.classList.add("hidden"), 2800);
 }
 
+// Files that change between deployments. map-data.js and the icons are static, so a hard
+// refresh leaves them alone rather than re-downloading 188KB of map geometry every time.
+const HARD_REFRESH_ASSETS = [
+  "./",
+  "./index.html",
+  "./style.css",
+  "./js/app.js",
+  "./js/config.js",
+  "./js/core.js"
+];
+
+// A phone has no Ctrl+Shift+R, and an installed PWA has no reload button at all. Three
+// separate layers hold the old build, so all three have to go before reloading.
+// Progress in localStorage is deliberately left alone: it is the one copy that survives a
+// failed Firestore write.
+async function hardRefreshApp() {
+  showToast("앱을 새로 내려받는 중입니다...");
+  try {
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+    // Emptying the caches is not enough. The browser's own HTTP cache still holds the old
+    // files and location.reload() cannot bypass it, so each asset is pulled from the network
+    // with cache: "reload" to overwrite those entries before the reload reads them.
+    await Promise.all(HARD_REFRESH_ASSETS.map((asset) => (
+      fetch(asset, { cache: "reload" }).catch(() => {})
+    )));
+  } catch (error) {
+    console.warn("Hard refresh cleanup failed; reloading anyway", error);
+  }
+  location.reload();
+}
+
 function updateNetworkStatus() {
   const offline = !navigator.onLine;
   $("offline-banner").classList.toggle("hidden", !offline);
@@ -285,22 +323,18 @@ function applyLoadedQuizzes() {
   else renderQuestList([]);
 }
 
-async function refreshQuizzes({ notify = false } = {}) {
-  if (notify) $("refresh-button").disabled = true;
+async function refreshQuizzes() {
   try {
     state.quizzes = await loadSheetQuizzes();
     if (!state.preview) saveQuizCache(state.quizzes);
     applyLoadedQuizzes();
-
+    // A regionId the map does not know still opens its quiz but never colours a region,
+    // which is a sheet mistake worth surfacing to whoever opens the console.
     const invalidCount = state.quizzes.filter((quiz) => !MUNIS[quiz.regionId]).length;
-    if (notify) {
-      if (!state.quizzes.length) showToast("시트에 활성 퀴즈가 아직 없습니다.");
-      else if (invalidCount) showToast(`퀴즈 ${state.quizzes.length}개 로드 · 지도 ID ${invalidCount}개 확인 필요`);
-      else showToast(`퀴즈 ${state.quizzes.length}개를 새로 불러왔습니다.`);
-    }
+    if (invalidCount) console.warn(`${invalidCount} quiz rows carry a regionId that is not on the map`);
   } catch (error) {
     console.error("Quiz sheet load failed", error);
-    // One failed refresh on a moving phone must not wipe a list that is already working.
+    // One failed load on a moving phone must not wipe a list that is already working.
     const fallback = state.quizzes.length ? state.quizzes : loadQuizCache();
     if (fallback?.length) {
       state.quizzes = fallback;
@@ -309,10 +343,7 @@ async function refreshQuizzes({ notify = false } = {}) {
     } else {
       state.quizzes = [];
       renderQuestError(error.message);
-      if (notify) showToast("퀴즈 시트를 불러오지 못했습니다.");
     }
-  } finally {
-    $("refresh-button").disabled = false;
   }
 }
 
@@ -1341,7 +1372,7 @@ function renderTourSpots() {
   }).join("");
 }
 
-async function loadNearbyTourSpots({ force = false } = {}) {
+async function loadNearbyTourSpots() {
   if (!state.position) return;
   if (state.preview) {
     state.tourSpots = PREVIEW_TOUR_SPOTS.filter((spot) => spot.distance <= APP_CONFIG.tourApiRadiusMeters);
@@ -1355,7 +1386,7 @@ async function loadNearbyTourSpots({ force = false } = {}) {
     return;
   }
   const moved = state.tourOrigin ? distanceMeters(state.position, state.tourOrigin) : Number.POSITIVE_INFINITY;
-  if (!force && state.tourFetchedAt && Date.now() - state.tourFetchedAt < 120000 && moved < 300) return;
+  if (state.tourFetchedAt && Date.now() - state.tourFetchedAt < 120000 && moved < 300) return;
   if (state.tourLoading) return;
 
   state.tourLoading = true;
@@ -1609,8 +1640,6 @@ function updateUserUI(permission) {
   $("user-photo").src = state.user.photoURL || "./icon-192.png";
   $("user-photo").alt = `${displayName} 프로필`;
   $("sheet-link").classList.toggle("hidden", !state.canEdit);
-  $("refresh-button").classList.toggle("hidden", !state.canEdit);
-  $("passport-actions").classList.toggle("solo", !state.canEdit);
 }
 
 async function enterApp(permission) {
@@ -1833,9 +1862,8 @@ function bindEvents() {
     if (target && typeof target.closest === "function" && target.closest("#map-stage")) return;
     event.preventDefault();
   }, { passive: false });
-  $("refresh-button").addEventListener("click", async () => {
-    await refreshQuizzes({ notify: true });
-    await loadNearbyTourSpots({ force: true });
+  $("app-refresh-button").addEventListener("click", () => {
+    if (confirm("앱을 완전히 새로 불러올까요?\n탐방 기록은 지워지지 않습니다.")) hardRefreshApp();
   });
   document.querySelectorAll("[data-view]").forEach((link) => {
     link.addEventListener("click", (event) => {

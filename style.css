@@ -696,7 +696,6 @@ body { background: #dfe5df; }
   gap: 8px;
   padding: 0 22px 22px;
 }
-.passport-actions.solo { grid-template-columns: minmax(0, 1fr); }
 .passport-actions .primary-button,
 .passport-actions .secondary-button { width: 100%; min-height: 48px; }
 .passport-actions .primary-button { color: var(--ink); border-color: #fff3d8; background: #fff3d8; box-shadow: none; }
