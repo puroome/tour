@@ -19,8 +19,13 @@ const FIREBASE_PROJECT_ID = 'tour-53b75';
 const FIRESTORE_ROSTER_COLLECTION = 'roster';
 const TOUR_API_BASE_URL = 'https://apis.data.go.kr/B551011/KorService2';
 const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
-const EDUCATIONAL_CONTENT_TYPES = new Set(['12', '14']); // 관광지, 문화시설
-const EDUCATIONAL_CONTENT_LABELS = { '12': '관광지', '14': '문화시설' };
+const EDUCATIONAL_CONTENT_TYPES = new Set(['12', '14', '38', '39']); // 관광지, 문화시설, 쇼핑, 음식점
+const EDUCATIONAL_CONTENT_LABELS = {
+  '12': '관광지',
+  '14': '문화시설',
+  '38': '쇼핑',
+  '39': '음식점'
+};
 const METROPOLITAN_REGION_NAMES = new Set([
   '서울특별시', '부산광역시', '대구광역시', '인천광역시',
   '광주광역시', '대전광역시', '울산광역시', '세종특별자치시'
@@ -36,7 +41,7 @@ const METROPOLITAN_REGION_KEYWORDS = {
   '세종': '세종특별자치시'
 };
 const GEO_QUEST_HEADERS = [
-  '퀴즈ID', '지역ID', '장소명', '위도', '경도', '반경m',
+  '퀴즈ID', '지역ID', '장소명', '테마', '위도', '경도', '반경m',
   '문제', '보기1', '보기2', '보기3', '보기4', '정답', '해설', '활성', '주소'
 ];
 
@@ -505,7 +510,7 @@ function fillTourPlaceData() {
 
   if (filledCount) {
     sheet.getRange(2, 1, values.length - 1, headers.length).setValues(values.slice(1));
-    sheet.getRange(2, 4, values.length - 1, 2).setNumberFormat('0.000000');
+    sheet.getRange(2, 5, values.length - 1, 2).setNumberFormat('0.000000');
   }
 
   const summary = `TourAPI 장소 정보 ${filledCount}개를 자동으로 채웠습니다.`;
@@ -619,7 +624,7 @@ function addSelectedTourPlacesToQuizSheet() {
 
   const existingIds = new Set(quizValues.slice(1).map(row => String(row[0] || '').trim()).filter(Boolean));
   const existingPlaces = new Set(quizValues.slice(1).map(row => (
-    [String(row[2] || '').trim(), Number(row[3]).toFixed(5), Number(row[4]).toFixed(5)].join('|')
+    [String(row[2] || '').trim(), Number(row[4]).toFixed(5), Number(row[5]).toFixed(5)].join('|')
   )));
   const rowsToAdd = [];
   let skippedCount = 0;
@@ -640,6 +645,7 @@ function addSelectedTourPlacesToQuizSheet() {
       quizId,
       inferRegionId_(address),
       placeName,
+      '',
       latitude,
       longitude,
       150,
@@ -655,7 +661,7 @@ function addSelectedTourPlacesToQuizSheet() {
     const startRow = quizSheet.getLastRow() + 1;
     ensureSheetRows_(quizSheet, startRow + rowsToAdd.length - 1);
     quizSheet.getRange(startRow, 1, rowsToAdd.length, GEO_QUEST_HEADERS.length).setValues(rowsToAdd);
-    quizSheet.getRange(startRow, 4, rowsToAdd.length, 2).setNumberFormat('0.000000');
+    quizSheet.getRange(startRow, 5, rowsToAdd.length, 2).setNumberFormat('0.000000');
     applyQuizDataValidations_(quizSheet, startRow, rowsToAdd.length);
   }
   catalogSheet.getRange(2, 1, catalogRows.length, 1).uncheck();
@@ -684,9 +690,18 @@ function compactQuizRows() {
 }
 
 function ensureQuizAddressHeader_(sheet) {
+  const themeColumn = GEO_QUEST_HEADERS.indexOf('테마') + 1;
+  const themeHeader = sheet.getRange(1, themeColumn).getDisplayValue().trim();
+  if (themeHeader !== '테마') {
+    if (themeHeader && themeHeader !== '위도') {
+      throw new Error('quiz 탭의 D열을 비운 뒤 다시 실행해 주세요. D열은 테마 열로 사용합니다.');
+    }
+    if (themeHeader === '위도') sheet.insertColumnAfter(themeColumn - 1);
+    sheet.getRange(1, themeColumn).setValue('테마');
+  }
   const addressColumn = GEO_QUEST_HEADERS.indexOf('주소') + 1;
   const currentValue = sheet.getRange(1, addressColumn).getDisplayValue().trim();
-  if (currentValue && currentValue !== '주소') throw new Error('quiz 탭의 O1 셀을 비운 뒤 다시 실행해 주세요. O열은 주소 열로 사용합니다.');
+  if (currentValue && currentValue !== '주소') throw new Error('quiz 탭의 P1 셀을 비운 뒤 다시 실행해 주세요. P열은 주소 열로 사용합니다.');
   if (!currentValue) sheet.getRange(1, addressColumn).setValue('주소');
 }
 
@@ -709,12 +724,12 @@ function compactQuizRows_(sheet) {
   }
 
   const values = sheet.getRange(2, 1, lastRow - 1, GEO_QUEST_HEADERS.length).getValues();
-  const quizRows = values.filter(row => row.slice(0, 13).some(value => value !== '' && value !== null));
+  const quizRows = values.filter(row => row.slice(0, GEO_QUEST_HEADERS.indexOf('활성')).some(value => value !== '' && value !== null));
   sheet.getRange(2, 1, lastRow - 1, GEO_QUEST_HEADERS.length).clearContent();
   if (quizRows.length) {
     ensureSheetRows_(sheet, quizRows.length + 1);
     sheet.getRange(2, 1, quizRows.length, GEO_QUEST_HEADERS.length).setValues(quizRows);
-    sheet.getRange(2, 4, quizRows.length, 2).setNumberFormat('0.000000');
+    sheet.getRange(2, 5, quizRows.length, 2).setNumberFormat('0.000000');
   }
   applyQuizDataValidations_(sheet, 2, Math.max(1, sheet.getMaxRows() - 1));
   return quizRows.length;
@@ -730,8 +745,8 @@ function applyQuizDataValidations_(sheet, startRow, rowCount) {
     .requireCheckbox()
     .setAllowInvalid(false)
     .build();
-  sheet.getRange(startRow, 12, rowCount, 1).setDataValidation(answerRule);
-  sheet.getRange(startRow, 14, rowCount, 1).setDataValidation(checkboxRule);
+  sheet.getRange(startRow, 13, rowCount, 1).setDataValidation(answerRule);
+  sheet.getRange(startRow, 15, rowCount, 1).setDataValidation(checkboxRule);
 }
 
 function repairQuizRegionIds_(quizSheet, catalogSheet) {
@@ -753,15 +768,15 @@ function repairQuizRegionIds_(quizSheet, catalogSheet) {
       row[1] = expectedRegionId;
       changed = true;
     }
-    if (String(row[14] || '') !== address) {
-      row[14] = address;
+    if (String(row[15] || '') !== address) {
+      row[15] = address;
       changed = true;
     }
     if (changed) correctedCount += 1;
   });
   if (correctedCount) {
     quizSheet.getRange(2, 2, rowCount, 1).setValues(quizRows.map(row => [row[1]]));
-    quizSheet.getRange(2, 15, rowCount, 1).setValues(quizRows.map(row => [row[14]]));
+    quizSheet.getRange(2, 16, rowCount, 1).setValues(quizRows.map(row => [row[15]]));
   }
   return correctedCount;
 }
@@ -792,7 +807,7 @@ function searchTourPlace_(keyword) {
   const exact = candidates.find(item => normalizePlaceName_(item.title) === normalizedKeyword);
   if (exact) return exact;
   if (candidates.length === 1) return candidates[0];
-  if (!candidates.length) throw new Error('관광지·문화시설 검색 결과가 없습니다.');
+  if (!candidates.length) throw new Error('관광지·문화시설·쇼핑·음식점 검색 결과가 없습니다.');
   throw new Error(`정확한 장소명을 입력해 주세요. 후보: ${candidates.slice(0, 5).map(item => item.title).join(', ')}`);
 }
 
@@ -909,7 +924,7 @@ function setupQuizSheet() {
   sheet.setFrozenRows(1);
   sheet.setRowHeight(1, 34);
 
-  const widths = [110, 120, 150, 100, 100, 90, 330, 150, 150, 150, 150, 65, 330, 65, 360];
+  const widths = [110, 120, 150, 120, 100, 100, 90, 330, 150, 150, 150, 150, 65, 330, 65, 360];
   widths.forEach((width, index) => sheet.setColumnWidth(index + 1, width));
 
   applyQuizDataValidations_(sheet, 2, Math.max(1, sheet.getMaxRows() - 1));
@@ -923,15 +938,16 @@ function setupQuizSheet() {
     .setVerticalAlignment('middle')
     .setWrap(true);
   const availableRows = Math.max(1, sheet.getMaxRows() - 1);
-  sheet.getRange(2, 4, availableRows, 3).setNumberFormat('0.000000');
-  sheet.getRange(2, 6, availableRows, 1).setNumberFormat('0');
+  sheet.getRange(2, 5, availableRows, 2).setNumberFormat('0.000000');
+  sheet.getRange(2, 7, availableRows, 1).setNumberFormat('0');
   sheet.getRange(1, 1).setNote('db 탭에서 선택한 장소를 추가하면 자동 생성됩니다.');
   sheet.getRange(1, 2).setNote('TourAPI 주소를 기준으로 자동 입력합니다.');
   sheet.getRange(1, 3).setNote('db 탭에서 선택한 장소가 자동 입력됩니다.');
-  sheet.getRange(1, 4, 1, 2).setNote('db 탭의 TourAPI 좌표가 자동 입력됩니다.');
-  sheet.getRange(1, 6).setNote('퀴즈 활성 반경 150m가 자동 입력됩니다.');
-  sheet.getRange(1, 12).setNote('보기1=1, 보기2=2, 보기3=3, 보기4=4');
-  sheet.getRange(1, 15).setNote('db 탭의 TourAPI 주소가 자동 입력됩니다.');
+  sheet.getRange(1, 4).setNote('장소의 주제 또는 분류를 자유롭게 입력하세요.');
+  sheet.getRange(1, 5, 1, 2).setNote('db 탭의 TourAPI 좌표가 자동 입력됩니다.');
+  sheet.getRange(1, 7).setNote('퀴즈 활성 반경 150m가 자동 입력됩니다.');
+  sheet.getRange(1, 13).setNote('보기1=1, 보기2=2, 보기3=3, 보기4=4');
+  sheet.getRange(1, 16).setNote('db 탭의 TourAPI 주소가 자동 입력됩니다.');
   SpreadsheetApp.getUi().alert('발자국 quiz 탭 형식을 만들었습니다. 예시 행은 자유롭게 수정하거나 삭제하세요.');
 }
 
@@ -957,7 +973,7 @@ function validateQuizSheet() {
   const errors = [];
   values.slice(1).forEach((row, offset) => {
     const line = offset + 2;
-    if (row.slice(0, 13).every(value => value === '')) return;
+    if (row.slice(0, GEO_QUEST_HEADERS.indexOf('활성')).every(value => value === '')) return;
     const id = row[index['퀴즈ID']].trim();
     const region = row[index['지역ID']].trim();
     const latitude = Number(row[index['위도']]);
@@ -986,8 +1002,8 @@ function validateQuizSheet() {
 
 function sampleQuizRows_() {
   return [
-    ['seoul-001', '서울특별시', '서울광장', 37.5663, 126.9779, 150, '서울을 가로질러 서해로 흐르는 강은 무엇일까요?', '한강', '낙동강', '금강', '영산강', 1, '한강은 서울의 중심부를 동서로 가로질러 흐릅니다.', true, '서울특별시 중구 세종대로 110'],
-    ['busan-001', '부산광역시', '부산시청', 35.1798, 129.0750, 150, '부산의 대표적인 우리나라 최대 무역항은?', '인천항', '부산항', '군산항', '목포항', 2, '부산항은 우리나라 최대 규모의 컨테이너 무역항입니다.', true, '부산광역시 연제구 중앙대로 1001'],
-    ['jeju-001', '제주시', '제주시청', 33.4996, 126.5312, 150, '제주도 중앙에 있는 우리나라 최고봉은?', '지리산', '설악산', '한라산', '태백산', 3, '한라산은 해발 1,947m로 대한민국에서 가장 높은 산입니다.', true, '제주특별자치도 제주시 광양9길 10']
+    ['seoul-001', '서울특별시', '서울광장', '', 37.5663, 126.9779, 150, '서울을 가로질러 서해로 흐르는 강은 무엇일까요?', '한강', '낙동강', '금강', '영산강', 1, '한강은 서울의 중심부를 동서로 가로질러 흐릅니다.', true, '서울특별시 중구 세종대로 110'],
+    ['busan-001', '부산광역시', '부산시청', '', 35.1798, 129.0750, 150, '부산의 대표적인 우리나라 최대 무역항은?', '인천항', '부산항', '군산항', '목포항', 2, '부산항은 우리나라 최대 규모의 컨테이너 무역항입니다.', true, '부산광역시 연제구 중앙대로 1001'],
+    ['jeju-001', '제주시', '제주시청', '', 33.4996, 126.5312, 150, '제주도 중앙에 있는 우리나라 최고봉은?', '지리산', '설악산', '한라산', '태백산', 3, '한라산은 해발 1,947m로 대한민국에서 가장 높은 산입니다.', true, '제주특별자치도 제주시 광양9길 10']
   ];
 }

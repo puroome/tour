@@ -206,6 +206,11 @@ function normalizeRegionToken(name) {
 function regionFromAddress(address) {
   const parts = String(address || "").trim().split(/\s+/).filter(Boolean);
   const province = parts[0] || "";
+  const addressRegionAliases = {
+    "광주특별시": "광주광역시",
+    "전남광주통합특별시": "광주광역시"
+  };
+  if (addressRegionAliases[province]) return addressRegionAliases[province];
   if (MUNIS[province]) return province;
   if (province === "강원특별자치도" && parts[1] === "고성군") return "고성군(강원)";
   if (province === "경상남도" && parts[1] === "고성군") return "고성군(경남)";

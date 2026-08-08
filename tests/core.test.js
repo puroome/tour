@@ -28,14 +28,14 @@ test("distanceMeters returns a realistic Seoul-to-Busan distance", () => {
 });
 
 test("normalizeQuizRows maps the Korean sheet schema and ignores inactive rows", () => {
-  const cols = ["퀴즈ID", "지역ID", "장소명", "위도", "경도", "반경m", "문제", "보기1", "보기2", "보기3", "보기4", "정답", "해설", "활성"]
+  const cols = ["퀴즈ID", "지역ID", "장소명", "테마", "위도", "경도", "반경m", "문제", "보기1", "보기2", "보기3", "보기4", "정답", "해설", "활성"]
     .map((label, index) => ({ id: String.fromCharCode(65 + index), label }));
   const response = {
     table: {
       cols,
       rows: [
-        { c: ["q1", "서울특별시", "서울광장", 37.5, 126.9, 150, "문제", "가", "나", "다", "라", 2, "해설", true].map((v) => ({ v })) },
-        { c: ["q2", "부산광역시", "부산시청", 35.1, 129.0, 150, "문제", "가", "나", "다", "라", 1, "해설", false].map((v) => ({ v })) }
+        { c: ["q1", "서울특별시", "서울광장", "역사", 37.5, 126.9, 150, "문제", "가", "나", "다", "라", 2, "해설", true].map((v) => ({ v })) },
+        { c: ["q2", "부산광역시", "부산시청", "행정", 35.1, 129.0, 150, "문제", "가", "나", "다", "라", 1, "해설", false].map((v) => ({ v })) }
       ]
     }
   };
