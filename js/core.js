@@ -32,7 +32,10 @@ export function distanceMeters(a, b) {
 export function formatDistance(meters) {
   if (!Number.isFinite(meters)) return "거리 확인 불가";
   if (meters < 1000) return `${Math.max(0, Math.round(meters))}m`;
-  return `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)}km`;
+  const kilometers = meters < 10000
+    ? Math.round(meters / 100) / 10
+    : Math.round(meters / 1000);
+  return `${kilometers}km`;
 }
 
 export function projectCoordinatesToMap(point) {
@@ -135,6 +138,8 @@ export function normalizeQuizRows(response) {
       id: String(pick(row, ["퀴즈ID", "ID", "id"]) || `row-${rowIndex + 2}`).trim(),
       regionId,
       placeName: String(pick(row, ["장소명", "장소", "placeName"]) || regionId).trim(),
+      description: String(pick(row, ["설명", "장소설명", "placeDescription"])).trim(),
+      theme: String(pick(row, ["테마", "주제", "theme"])).trim(),
       address: String(pick(row, ["주소", "소재지", "address"])).trim(),
       latitude,
       longitude,
@@ -142,7 +147,7 @@ export function normalizeQuizRows(response) {
       question,
       choices,
       answerIndex,
-      explanation: String(pick(row, ["해설", "설명", "explanation"])).trim(),
+      explanation: String(pick(row, ["해설", "explanation"])).trim(),
       active: parseBoolean(pick(row, ["활성", "사용", "active"]), true)
     };
   }).filter((quiz) => quiz.active

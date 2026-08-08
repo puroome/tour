@@ -45,6 +45,7 @@ const screens = {
 const state = {
   user: null,
   canEdit: false,
+  studentId: "",
   quizzes: [],
   position: null,
   ranked: [],
@@ -52,6 +53,9 @@ const state = {
   acquired: {},
   ownedMissions: new Set(),
   acquiredMissions: {},
+  photoUploads: {},
+  photoUploadMission: null,
+  photoUploading: false,
   legacyOwnedRegions: new Set(),
   mapPaths: new Map(),
   selectedMapRegion: null,
@@ -59,6 +63,7 @@ const state = {
   mapBaseViewBox: BASE_MAP_VIEWBOX.slice(),
   watchId: null,
   currentQuiz: null,
+  passportRegion: "",
   activeView: "passport",
   visibleMissions: [],
   tourSpots: [],
@@ -70,6 +75,7 @@ const state = {
   addressFetchedAt: 0,
   addressFailedAt: 0,
   addressLoading: false,
+  locationRefreshRequested: false,
   toastTimer: null,
   preview: PREVIEW_MODE
 };
@@ -217,6 +223,14 @@ function regionFromAddress(address) {
   return MUNIS[parts[1]] ? parts[1] : "";
 }
 
+function displayCurrentAddress(address) {
+  const value = String(address || "").trim();
+  const specialCity = /^(?:전남광주통합특별시|광주특별시|광주광역시)\s*(.*)$/u.exec(value);
+  if (!specialCity) return value;
+  const detail = specialCity[1].trim();
+  return detail === "광주" || detail.startsWith("광주 ") ? detail : `광주${detail ? ` ${detail}` : ""}`;
+}
+
 function resolveRegionId(regionId, quiz) {
   const addressRegion = regionFromAddress(quiz?.address);
   if (addressRegion) return addressRegion;
@@ -244,6 +258,7 @@ async function refreshQuizzes({ notify = false } = {}) {
   if (notify) $("refresh-button").disabled = true;
   try {
     state.quizzes = await loadSheetQuizzes();
+    populatePassportRegionSelect();
     updateMapState();
     updateProgressUI();
     if (state.position) updateNearby();
@@ -315,10 +330,11 @@ function loadLocalProgress() {
       acquired: saved.acquired && typeof saved.acquired === "object" ? saved.acquired : {},
       ownedMissions: safeOwnedRegions(saved.ownedMissions),
       acquiredMissions: saved.acquiredMissions && typeof saved.acquiredMissions === "object" ? saved.acquiredMissions : {},
+      photoUploads: saved.photoUploads && typeof saved.photoUploads === "object" ? saved.photoUploads : {},
       hasMissionProgress: Array.isArray(saved.ownedMissions)
     };
   } catch {
-    return { ownedRegions: [], acquired: {}, ownedMissions: [], acquiredMissions: {}, hasMissionProgress: false };
+    return { ownedRegions: [], acquired: {}, ownedMissions: [], acquiredMissions: {}, photoUploads: {}, hasMissionProgress: false };
   }
 }
 
@@ -328,7 +344,8 @@ function saveLocalProgress() {
       ownedRegions: [...state.owned],
       acquired: state.acquired,
       ownedMissions: [...state.ownedMissions],
-      acquiredMissions: state.acquiredMissions
+      acquiredMissions: state.acquiredMissions,
+      photoUploads: state.photoUploads
     }));
   } catch (error) {
     console.warn("Local progress save failed", error);
@@ -345,6 +362,7 @@ async function loadProgress() {
   state.acquired = local.acquired;
   state.ownedMissions = new Set(local.ownedMissions);
   state.acquiredMissions = local.acquiredMissions;
+  state.photoUploads = local.photoUploads;
   if (!state.preview) {
     try {
       const snapshot = await getDoc(progressDocument());
@@ -356,6 +374,7 @@ async function loadProgress() {
         safeOwnedRegions(remote.ownedMissions).forEach((mission) => state.ownedMissions.add(mission));
         state.acquired = { ...(remote.acquired || {}), ...state.acquired };
         state.acquiredMissions = { ...(remote.acquiredMissions || {}), ...state.acquiredMissions };
+        state.photoUploads = { ...(remote.photoUploads || {}), ...state.photoUploads };
       }
     } catch (error) {
       console.warn("Cloud progress load failed; using local copy", error);
@@ -372,6 +391,7 @@ async function saveProgress() {
       acquired: state.acquired,
       ownedMissions: [...state.ownedMissions],
       acquiredMissions: state.acquiredMissions,
+      photoUploads: state.photoUploads,
       updatedAt: serverTimestamp()
     }, { merge: true });
   } catch (error) {
@@ -608,13 +628,43 @@ function renderMapRegionSummary() {
   const completed = missions.filter(isMissionOwned).length;
   $("map-region-progress-title").textContent = `${regionId} 탐방 기록`;
   $("map-region-progress-count").textContent = `${completed}/${missions.length}`;
-  $("map-place-list").innerHTML = missions.map((mission) => {
-    const owned = isMissionOwned(mission);
-    const distance = state.position ? formatDistance(distanceMeters(state.position, mission)) : "위치 미확인";
-    return `<div class="map-place-item${owned ? " completed" : ""}">
-      <i aria-hidden="true"></i><strong>${escapeHTML(mission.placeName)}</strong><small>${owned ? "스탬프 획득" : escapeHTML(distance)}</small>
-    </div>`;
-  }).join("");
+  const themeOrder = new Map();
+  missions.forEach((mission, index) => {
+    const theme = String(mission.theme || "").trim() || "미분류";
+    if (!themeOrder.has(theme)) themeOrder.set(theme, index);
+  });
+  const sortedMissions = missions.map((mission) => ({
+    ...mission,
+    displayDistance: state.position ? distanceMeters(state.position, mission) : Number.POSITIVE_INFINITY
+  })).sort((a, b) => (
+    a.displayDistance - b.displayDistance
+    || a.placeName.localeCompare(b.placeName, "ko")
+  ));
+  const byTheme = new Map();
+  sortedMissions.forEach((mission) => {
+    const theme = String(mission.theme || "").trim() || "미분류";
+    if (!byTheme.has(theme)) byTheme.set(theme, []);
+    byTheme.get(theme).push(mission);
+  });
+  $("map-place-list").innerHTML = [...byTheme.entries()]
+    .sort(([a], [b]) => themeOrder.get(a) - themeOrder.get(b))
+    .map(([theme, themeMissions]) => {
+      const themeCompleted = themeMissions.filter(isMissionOwned).length;
+      return `<details class="map-theme-group">
+        <summary><span>${escapeHTML(theme)}</span><small>${themeCompleted}/${themeMissions.length}</small></summary>
+        <div class="map-theme-place-list">${themeMissions.map((mission) => {
+          const owned = isMissionOwned(mission);
+          const distance = state.position ? formatDistance(mission.displayDistance) : "위치 미확인";
+          const missionIndex = sortedMissions.indexOf(mission);
+          return `<div class="map-place-item${owned ? " completed" : ""}">
+            <i aria-hidden="true"></i><button type="button" class="map-place-name" data-mission-index="${missionIndex}">${escapeHTML(placeLabel(mission))}</button><small>${owned ? "스탬프 획득" : escapeHTML(distance)}</small>
+          </div>`;
+        }).join("")}</div>
+      </details>`;
+    }).join("");
+  $("map-place-list").querySelectorAll(".map-place-name").forEach((button) => {
+    button.addEventListener("click", () => showPlaceDescription(sortedMissions[Number(button.dataset.missionIndex)]));
+  });
   section.classList.remove("hidden");
 }
 
@@ -724,6 +774,46 @@ function updateProgressUI() {
   $("registered-count").textContent = String(missions.length);
   $("completion-rate").textContent = `${rate}%`;
   $("completion-bar").style.width = `${rate}%`;
+  renderPassportThemeStats();
+}
+
+function populatePassportRegionSelect() {
+  const select = $("passport-region-select");
+  const regions = uniqueRegions(state.quizzes).sort((a, b) => a.localeCompare(b, "ko"));
+  if (!regions.includes(state.passportRegion)) state.passportRegion = "";
+  select.innerHTML = `<option value="">전체 장소</option>${regions.map((region) => (
+    `<option value="${escapeHTML(region)}">${escapeHTML(region)}</option>`
+  )).join("")}`;
+  select.value = state.passportRegion;
+}
+
+function renderPassportThemeStats() {
+  const regionId = state.passportRegion;
+  const layout = $("passport-stat-layout");
+  const panel = $("passport-theme-stats");
+  layout.classList.toggle("region-selected", Boolean(regionId));
+  panel.classList.toggle("hidden", !regionId);
+  if (!regionId) {
+    panel.innerHTML = "";
+    return;
+  }
+
+  const themes = new Map();
+  missionsForRegion(regionId).forEach((mission) => {
+    const theme = String(mission.theme || "").trim() || "미분류";
+    if (!themes.has(theme)) themes.set(theme, []);
+    themes.get(theme).push(mission);
+  });
+  const rows = [...themes.entries()];
+  panel.innerHTML = `
+    <div class="passport-theme-list">${rows.map(([theme, missions]) => {
+      const acquired = missions.filter(isMissionOwned).length;
+      const rate = missions.length ? Math.round(acquired / missions.length * 100) : 0;
+      return `<article class="passport-theme-row">
+        <div><strong>${escapeHTML(theme)}</strong><span>${acquired}/${missions.length}</span></div>
+        <div class="progress-track"><span style="width:${rate}%"></span></div>
+      </article>`;
+    }).join("")}</div>`;
 }
 
 function setLocationStatus(kind, title, detail) {
@@ -752,7 +842,7 @@ async function loadCurrentAddress() {
     state.currentAddress = `${nearest.regionId} ${nearest.placeName} 부근`;
     state.addressOrigin = { latitude: state.position.latitude, longitude: state.position.longitude };
     updateQuestHeadingAddress();
-    setLocationStatus("active", "현재 위치", `${state.currentAddress} · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
+    setLocationStatus("active", "현재 위치", `${displayCurrentAddress(state.currentAddress)} · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
     return;
   }
   const proxyUrl = String(APP_CONFIG.tourApiProxyUrl || "").trim();
@@ -776,7 +866,7 @@ async function loadCurrentAddress() {
     state.addressFailedAt = 0;
     updateQuestHeadingAddress();
     if (state.position && distanceMeters(state.position, requestOrigin) < 500) {
-      setLocationStatus("active", "현재 위치", `${state.currentAddress} · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
+      setLocationStatus("active", "현재 위치", `${displayCurrentAddress(state.currentAddress)} · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
     }
   } catch (error) {
     console.warn("Reverse geocoding failed", error);
@@ -795,19 +885,24 @@ function handleLocation(position) {
   const accuracy = Math.round(state.position.accuracy || 0);
   const addressDistance = state.addressOrigin ? distanceMeters(state.position, state.addressOrigin) : Number.POSITIVE_INFINITY;
   if (state.currentAddress && addressDistance < 500) {
-    setLocationStatus("active", "현재 위치", `${state.currentAddress} · 정확도 약 ±${accuracy}m`);
+    setLocationStatus("active", "현재 위치", `${displayCurrentAddress(state.currentAddress)} · 정확도 약 ±${accuracy}m`);
   } else {
     setLocationStatus("active", "위치 확인 완료", `주소 확인 중 · 정확도 약 ±${accuracy}m`);
   }
-  $("location-button").innerHTML = "<span>●</span> 현재 위치 새로고침";
+  $("location-button").innerHTML = "<span>📍</span> 현재 위치 새로고침";
   $("location-button").setAttribute("aria-busy", "false");
   updateNearby();
   loadCurrentAddress();
   loadNearbyTourSpots();
+  if (state.locationRefreshRequested) {
+    state.locationRefreshRequested = false;
+    showToast("현재 위치를 새로 확인했습니다.");
+  }
   if (isFirstFix && state.activeView === "passport") navigateToView("quests");
 }
 
 function handleLocationError(error) {
+  state.locationRefreshRequested = false;
   const messages = {
     1: ["위치 권한이 꺼져 있어요", "브라우저 설정에서 이 사이트의 위치 권한을 허용해 주세요."],
     2: ["현재 위치를 찾지 못했어요", "야외나 창가에서 잠시 후 다시 시도해 주세요."],
@@ -815,12 +910,13 @@ function handleLocationError(error) {
   };
   const [title, detail] = messages[error?.code] || ["위치 확인에 실패했어요", "잠시 후 다시 시도해 주세요."];
   setLocationStatus("error", title, detail);
-  $("location-button").innerHTML = "<span>⌖</span> 위치 다시 확인하기";
+  $("location-button").innerHTML = "<span>📍</span> 위치 다시 확인하기";
   $("location-button").setAttribute("aria-busy", "false");
 }
 
 function startLocationWatch() {
   if (state.preview) {
+    const wasRefreshRequested = state.locationRefreshRequested;
     const selected = PREVIEW_QUIZZES.find((quiz) => quiz.id === search.get("place"))
       || PREVIEW_QUIZZES.find((quiz) => quiz.regionId === search.get("region"))
       || PREVIEW_QUIZZES[0];
@@ -828,7 +924,7 @@ function startLocationWatch() {
       coords: { latitude: selected.latitude, longitude: selected.longitude, accuracy: 12 },
       timestamp: Date.now()
     });
-    showToast("로컬 미리보기 위치를 사용합니다.");
+    if (!wasRefreshRequested) showToast("로컬 미리보기 위치를 사용합니다.");
     return;
   }
   if (!navigator.geolocation) {
@@ -839,7 +935,7 @@ function startLocationWatch() {
   setLocationStatus("", "위치를 찾는 중...", "GPS 확인 중");
   $("location-button").disabled = true;
   $("location-button").setAttribute("aria-busy", "true");
-  $("location-button").innerHTML = "<span>⌖</span> 위치 찾는 중...";
+  $("location-button").innerHTML = "<span>📍</span> 위치 찾는 중...";
   state.watchId = navigator.geolocation.watchPosition(
     (position) => {
       $("location-button").disabled = false;
@@ -853,12 +949,178 @@ function startLocationWatch() {
   );
 }
 
+function refreshCurrentLocation() {
+  state.locationRefreshRequested = true;
+  startLocationWatch();
+}
+
+function startFieldPhotoCapture(mission) {
+  if (!hasMissionAnswer(mission)) {
+    showToast("퀴즈 정답 후 현장 사진을 올릴 수 있습니다.");
+    return;
+  }
+  if (state.photoUploading) {
+    showToast("사진을 올리는 중입니다.");
+    return;
+  }
+  state.photoUploadMission = mission;
+  const input = $("photo-upload-input");
+  input.value = "";
+  input.click();
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("사진 파일을 읽지 못했습니다."));
+    };
+    image.src = url;
+  });
+}
+
+async function compressPhotoForUpload(file) {
+  if (!String(file?.type || "").startsWith("image/")) throw new Error("사진 파일만 올릴 수 있습니다.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("원본 사진은 15MB 이하로 선택해 주세요.");
+  const image = await loadImageElement(file);
+  const largestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  const scale = Math.min(1, 1600 / Math.max(1, largestSide));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  const compressed = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .84));
+  if (!compressed) throw new Error("사진을 준비하지 못했습니다.");
+  if (compressed.size > 5 * 1024 * 1024) throw new Error("사진 크기를 더 줄여 다시 촬영해 주세요.");
+  return compressed;
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",").pop() || "");
+    reader.onerror = () => reject(new Error("사진 데이터를 읽지 못했습니다."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function postFieldPhotoUpload(payload) {
+  return new Promise((resolve, reject) => {
+    const frame = $("photo-upload-frame");
+    const requestId = `photo-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const timeout = setTimeout(() => finish(new Error("사진 업로드 응답 시간이 초과되었습니다.")), 45000);
+    const finish = (error, result) => {
+      clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const onMessage = (event) => {
+      const message = event.data;
+      if (event.source !== frame.contentWindow || message?.type !== "geoQuestPhotoUpload" || message.requestId !== requestId) return;
+      finish(null, message.result);
+    };
+    window.addEventListener("message", onMessage);
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = APP_CONFIG.tourApiProxyUrl;
+    form.target = frame.name;
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = "payload";
+    field.value = JSON.stringify({ ...payload, requestId });
+    form.appendChild(field);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  });
+}
+
+async function uploadSelectedFieldPhoto(file) {
+  const mission = state.photoUploadMission;
+  state.photoUploadMission = null;
+  if (!file || !mission) return;
+  if (!hasMissionAnswer(mission)) {
+    showToast("퀴즈 정답 후 현장 사진을 올릴 수 있습니다.");
+    return;
+  }
+  state.photoUploading = true;
+  showToast("현장 사진을 준비하는 중입니다.");
+  try {
+    const photo = await compressPhotoForUpload(file);
+    if (state.preview) {
+      state.photoUploads[missionKey(mission)] = {
+        url: URL.createObjectURL(photo),
+        fileName: "00000-preview.jpg",
+        uploadedAt: new Date().toISOString()
+      };
+    } else {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error("로그인 확인에 실패했습니다. 다시 로그인해 주세요.");
+      const result = await postFieldPhotoUpload({
+        action: "uploadFieldPhoto",
+        idToken,
+        missionKey: missionKey(mission),
+        imageData: await blobToBase64(photo)
+      });
+      if (!result?.success || !result.url) throw new Error(result?.message || "사진 업로드에 실패했습니다.");
+      state.photoUploads[missionKey(mission)] = {
+        url: result.url,
+        fileName: result.fileName || "현장 사진.jpg",
+        uploadedAt: result.uploadedAt || new Date().toISOString()
+      };
+    }
+    syncDerivedOwnership();
+    updateMapState();
+    updateProgressUI();
+    await saveProgress();
+    renderQuestList(visibleQuizMissions());
+    showPlaceDescription(mission);
+    showToast("현장 사진을 올렸습니다.");
+  } catch (error) {
+    console.error("Field photo upload failed", error);
+    showToast(error.message || "사진 업로드에 실패했습니다.");
+  } finally {
+    state.photoUploading = false;
+  }
+}
+
 function missionKey(quiz) {
   return [
     quiz.placeName,
     Number(quiz.latitude).toFixed(5),
     Number(quiz.longitude).toFixed(5)
   ].join("|");
+}
+
+function placeLabel(quiz) {
+  const theme = String(quiz?.theme || "").trim();
+  return theme ? `${quiz.placeName} (${theme})` : quiz.placeName;
+}
+
+function showPlaceDescription(place) {
+  const description = String(place?.description || "").trim();
+  const photo = photoUploadForMission(place);
+  $("place-description-content").innerHTML = `
+    <div class="place-description-head">
+      <p class="eyebrow">${escapeHTML(place?.regionId || "현장 정보")}</p>
+      <h2>${escapeHTML(placeLabel(place))}</h2>
+    </div>
+    <div class="place-description-body">
+      <p>${escapeHTML(description || "관리자가 아직 장소 설명을 등록하지 않았습니다.")}</p>
+      ${photo?.url ? `<section class="place-photo"><h3>현장 사진</h3><img src="${escapeHTML(photo.url)}" alt="${escapeHTML(placeLabel(place))} 현장 사진" loading="lazy"></section>` : ""}
+    </div>`;
+  $("place-description-dialog").showModal();
+}
+
+function photoUploadForMission(mission) {
+  return state.photoUploads[missionKey(mission)] || null;
 }
 
 function quizMissions(quizzes = state.quizzes) {
@@ -875,6 +1137,11 @@ function missionsForRegion(regionId) {
 }
 
 function isMissionOwned(quiz) {
+  const key = missionKey(quiz);
+  return state.ownedMissions.has(key) && Boolean(state.photoUploads[key]?.url);
+}
+
+function hasMissionAnswer(quiz) {
   return state.ownedMissions.has(missionKey(quiz));
 }
 
@@ -1032,10 +1299,11 @@ function loadTourProxy(url) {
   return loadAppsScriptProxy(url, "TourAPI");
 }
 
-const LOCATE_EMPTY_BUTTON = '<button type="button" class="empty-compass empty-locate" aria-label="현재 위치 확인" title="현재 위치 확인"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></button>';
+const LOCATE_EMPTY_BUTTON = '<button type="button" class="empty-compass empty-locate" aria-label="현재 위치 확인" title="현재 위치 확인"><span aria-hidden="true">📍</span></button>';
 
 function updateQuestHeadingAddress() {
-  $("quest-heading-address").textContent = state.currentAddress ? `(${state.currentAddress})` : "";
+  const address = displayCurrentAddress(state.currentAddress);
+  $("quest-heading-address").textContent = address ? `(${address})` : "";
 }
 
 function renderQuestError(message) {
@@ -1078,19 +1346,26 @@ function renderQuestList(items) {
   list.classList.remove("hidden");
   list.innerHTML = "";
   items.forEach((item) => {
+    const answered = hasMissionAnswer(item);
     const owned = isMissionOwned(item);
+    const hasPhoto = Boolean(photoUploadForMission(item));
     const activationRadius = Math.max(1, Math.round(Number(item.radius) || APP_CONFIG.questActivationRadiusMeters));
+    const activationDistance = formatDistance(activationRadius);
     const article = document.createElement("article");
-    article.className = `quest-item${item.inRange ? " in-range" : ""}${owned ? " owned" : ""}`;
+    article.className = `quest-item${item.inRange ? " in-range" : ""}${owned ? " owned" : ""}${answered && !hasPhoto ? " photo-pending" : ""}`;
     article.innerHTML = `
       <div class="quest-meta">
         <span class="distance-badge">${escapeHTML(formatDistance(item.distance))}</span>
-        <span class="range-badge${owned ? " done" : ""}">${item.inRange ? (owned ? "● 도전 완료" : "● 도전 가능") : `${activationRadius}m 안에서 활성화`}</span>
+        <span class="range-badge${owned ? " done" : ""}${answered && !hasPhoto ? " photo-pending" : ""}">${item.inRange ? (owned ? "● 탐방 완료" : answered ? "● 사진 업로드 대기" : "● 도전 가능") : `${activationDistance} 안에서 활성화`}</span>
       </div>
-      <h3>${escapeHTML(item.placeName)}</h3>
-      <p>${escapeHTML(item.regionId)} · ${owned ? "스탬프 획득 완료" : "미획득 탐방지"}</p>
-      <button type="button" ${item.inRange ? "" : "disabled"}>${item.inRange ? (owned ? "퀴즈 다시 풀기" : "현장 퀴즈 도전") : `${activationRadius}m 안으로 이동하세요`}</button>`;
-    article.querySelector("button").addEventListener("click", () => openQuiz(item));
+      <h3><button type="button" class="place-name-button">${escapeHTML(placeLabel(item))}</button></h3>
+      <p>${escapeHTML(item.regionId)} · ${owned ? "탐방 완료" : answered ? "정답 완료 · 사진 업로드 대기" : "미획득 탐방지"}</p>
+      <button type="button" class="quest-action${answered ? " photo-action" : ""}" ${item.inRange ? "" : "disabled"}>${item.inRange ? (answered ? (hasPhoto ? "현장 사진 다시 올리기" : "현장 사진 올리기") : "현장 퀴즈 도전") : `${activationDistance} 안으로 이동하세요`}</button>`;
+    article.querySelector(".place-name-button").addEventListener("click", () => showPlaceDescription(item));
+    article.querySelector(".quest-action").addEventListener("click", () => {
+      if (answered) startFieldPhotoCapture(item);
+      else openQuiz(item);
+    });
     list.appendChild(article);
   });
 }
@@ -1148,8 +1423,8 @@ async function answerQuiz(selectedIndex, button) {
   buttons.forEach((choice) => { choice.disabled = true; });
   button.classList.add("correct");
   const key = missionKey(quiz);
-  const alreadyOwned = state.ownedMissions.has(key);
-  if (!alreadyOwned) {
+  const alreadyAnswered = state.ownedMissions.has(key);
+  if (!alreadyAnswered) {
     state.ownedMissions.add(key);
     state.acquiredMissions[key] = {
       quizId: quiz.id,
@@ -1162,7 +1437,7 @@ async function answerQuiz(selectedIndex, button) {
     updateProgressUI();
     await saveProgress();
   }
-  showSuccess(quiz, alreadyOwned);
+  showSuccess(quiz, alreadyAnswered);
 }
 
 function showSuccess(quiz, alreadyOwned) {
@@ -1170,9 +1445,9 @@ function showSuccess(quiz, alreadyOwned) {
   const regionCleared = state.owned.has(quiz.regionId);
   $("quiz-dialog-content").innerHTML = `
     <div class="success-view">
-      <div class="success-seal">${alreadyOwned ? "복습" : "획득"}</div>
+      <div class="success-seal">${alreadyOwned ? "복습" : "정답"}</div>
       <p class="eyebrow">정답입니다</p>
-      <h2>${escapeHTML(quiz.placeName)} ${alreadyOwned ? "복습 완료!" : "스탬프 획득!"}</h2>
+      <h2>${escapeHTML(quiz.placeName)} ${alreadyOwned ? "복습 완료!" : "사진을 올리면 탐방 완료!"}</h2>
       ${regionCleared ? `<strong class="region-clear-message">${escapeHTML(quiz.regionId)} 지역 완료</strong>` : ""}
       <p>${escapeHTML(explanation)}</p>
       <button id="success-close" class="primary-button" type="button">지도로 돌아가기</button>
@@ -1188,6 +1463,7 @@ function showSuccess(quiz, alreadyOwned) {
 function updateUserUI(permission) {
   const displayName = permission.displayName || "학생";
   state.canEdit = permission.canEdit === true;
+  state.studentId = String(permission.studentId || "").trim();
   $("user-name").textContent = displayName;
   $("passport-user-name").textContent = displayName;
   $("user-photo").src = state.user.photoURL || "./icon-192.png";
@@ -1207,6 +1483,7 @@ async function enterApp(permission) {
   updateProgressUI();
   $("sheet-link").href = APP_CONFIG.sheetUrl;
   showScreen("app");
+  startLocationWatch();
   const requestedView = location.hash.slice(1);
   const initialView = VIEW_IDS.has(requestedView) ? requestedView : "passport";
   if (location.hash !== `#${initialView}`) {
@@ -1368,6 +1645,8 @@ async function logout() {
 
 function bindEvents() {
   updateNetworkStatus();
+  document.addEventListener("contextmenu", (event) => event.preventDefault());
+  document.addEventListener("dragstart", (event) => event.preventDefault());
   window.addEventListener("offline", updateNetworkStatus);
   window.addEventListener("online", () => {
     updateNetworkStatus();
@@ -1384,11 +1663,19 @@ function bindEvents() {
   $("user-button").addEventListener("click", () => {
     if (confirm("로그아웃할까요?")) logout();
   });
-  $("location-button").addEventListener("click", startLocationWatch);
+  $("location-button").addEventListener("click", refreshCurrentLocation);
+  $("quest-heading-address").addEventListener("click", refreshCurrentLocation);
+  $("photo-upload-input").addEventListener("change", (event) => {
+    uploadSelectedFieldPhoto(event.target.files?.[0]);
+  });
   $("quest-empty").addEventListener("click", (event) => {
     if (event.target.closest(".empty-locate")) startLocationWatch();
   });
   $("passport-stamp").addEventListener("click", () => navigateToView("map"));
+  $("passport-region-select").addEventListener("change", (event) => {
+    state.passportRegion = event.target.value;
+    updateProgressUI();
+  });
   $("map-back-button").addEventListener("click", resetMapZoom);
   setupMapGestures();
   // iOS Safari zooms the page on pinch even with user-scalable=no, so block its

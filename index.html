@@ -87,7 +87,7 @@
         <span><b>발자국</b><small>LOCAL QUEST</small></span>
       </a>
       <div class="topbar-actions">
-        <a id="sheet-link" class="icon-button teacher-link hidden" href="#" target="_blank" rel="noopener" title="관리자 시트 열기" aria-label="관리자 시트 열기">▦</a>
+        <a id="sheet-link" class="icon-button teacher-link hidden" href="#" target="_blank" rel="noopener" title="관리자 시트 열기" aria-label="관리자 시트 열기"><svg viewBox="0 0 32 32" aria-hidden="true"><path fill="#22a447" d="M7 2h12l7 7v19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path fill="#8ce29e" d="M19 2v7h7Z"/><path fill="#fff" d="M10 15h12v10H10z"/><path fill="#22a447" d="M11 16h3v2h-3zm4 0h3v2h-3zm4 0h3v2h-3zm-8 3h3v2h-3zm4 0h3v2h-3zm4 0h3v2h-3zm-8 3h3v2h-3zm4 0h3v2h-3zm4 0h3v2h-3z"/></svg></a>
         <button id="user-button" class="user-chip" type="button" aria-label="로그아웃" title="로그아웃">
           <img id="user-photo" src="./icon-192.png" alt="">
           <span id="user-name">학생</span>
@@ -103,12 +103,23 @@
           <span><small>EXPLORER</small><strong id="passport-user-name">학생</strong></span>
         </div>
         <div class="passport-body">
-          <button type="button" id="passport-stamp" class="passport-stamp" aria-label="정복 지도 열기" title="정복 지도 열기"><span id="owned-count">0</span><small>획득 장소</small></button>
-          <div class="passport-detail">
-            <p>PLACE COMPLETION</p>
-            <strong id="completion-rate">0%</strong>
-            <div class="progress-track"><span id="completion-bar"></span></div>
-            <small><span id="registered-count">0</span>개 등록 장소 중</small>
+          <label class="passport-region-picker" for="passport-region-select">
+            <span>지역별 테마 기록</span>
+            <select id="passport-region-select">
+              <option value="">전체 장소</option>
+            </select>
+          </label>
+          <div id="passport-stat-layout" class="passport-stat-layout">
+            <div class="passport-overall-stat">
+              <button type="button" id="passport-stamp" class="passport-stamp" aria-label="정복 지도 열기" title="정복 지도 열기"><span id="owned-count">0</span><small>획득 장소</small></button>
+              <div class="passport-detail">
+                <p>PLACE COMPLETION</p>
+                <strong id="completion-rate">0%</strong>
+                <div class="progress-track"><span id="completion-bar"></span></div>
+                <small><span id="registered-count">0</span>개 등록 장소 중</small>
+              </div>
+            </div>
+            <aside id="passport-theme-stats" class="passport-theme-stats hidden" aria-live="polite"></aside>
           </div>
         </div>
         <div id="location-status" class="location-status" role="status">
@@ -119,7 +130,7 @@
           </span>
         </div>
         <div id="passport-actions" class="passport-actions solo">
-          <button id="location-button" class="primary-button location-button" type="button"><span>⌖</span> 내 위치 확인</button>
+          <button id="location-button" class="primary-button location-button" type="button"><span>📍</span> 내 위치 확인</button>
           <button id="refresh-button" class="secondary-button hidden" type="button" aria-label="퀴즈 새로고침" title="퀴즈 새로고침">↻</button>
         </div>
       </div>
@@ -127,13 +138,13 @@
 
     <section id="quests" class="app-view quest-screen" aria-label="주변 퀴즈">
       <aside class="quest-panel">
-        <div class="section-heading compact"><h2>주변 퀴즈 <span id="quest-heading-address" class="heading-address"></span></h2><span id="quest-count-badge" class="count-badge">0</span></div>
+        <div class="section-heading compact"><h2>주변 <button type="button" id="quest-heading-address" class="heading-address" aria-label="현재 위치 새로고침" title="현재 위치 새로고침"></button></h2><span id="quest-count-badge" class="count-badge">0</span></div>
         <section id="tour-section" class="tour-section hidden" aria-label="주변 탐방지">
           <div class="subsection-heading"><h3>주변 탐방지</h3><small>TourAPI</small></div>
           <div id="tour-list" class="tour-list"></div>
         </section>
         <div id="quest-empty" class="empty-state">
-          <button type="button" class="empty-compass empty-locate" aria-label="현재 위치 확인" title="현재 위치 확인"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></button>
+          <button type="button" class="empty-compass empty-locate" aria-label="현재 위치 확인" title="현재 위치 확인"><span aria-hidden="true">📍</span></button>
           <h3>위치를 확인하세요.</h3>
         </div>
         <div id="quest-list" class="quest-list hidden"></div>
@@ -161,9 +172,9 @@
     </section>
 
     <nav class="bottom-nav" aria-label="주요 화면">
-      <a class="active" href="#passport" data-view="passport" aria-current="page"><span>▣</span>여권</a>
-      <a href="#quests" data-view="quests"><span>◈</span>퀴즈</a>
-      <a href="#map" data-view="map"><span>⌖</span>지도</a>
+      <a class="active" href="#passport" data-view="passport" aria-current="page"><span class="nav-icon nav-passport-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><rect x="5" y="2" width="22" height="28" rx="4" fill="#000"/><circle cx="16" cy="13" r="7" fill="none" stroke="#fff" stroke-width="1.7"/><path d="M9 13h14M16 6c2.4 2 2.4 12 0 14M16 6c-2.4 2-2.4 12 0 14M11 8.3c2.6 1.5 7.4 1.5 10 0M11 17.7c2.6-1.5 7.4-1.5 10 0M11 25h10" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg></span>여권</a>
+      <a href="#quests" data-view="quests"><span class="nav-icon nav-quiz-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="#000"/><text x="16" y="23" fill="#fff" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle">?</text></svg></span>퀴즈</a>
+      <a href="#map" data-view="map"><span class="nav-icon nav-map-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 3C9.9 3 6 7.4 6 13.1c0 6.6 10 16 10 16s10-9.4 10-16C26 7.4 22.1 3 16 3Z" fill="#000"/><circle cx="16" cy="13" r="5" fill="#fff"/></svg></span>지도</a>
     </nav>
   </main>
 
@@ -173,6 +184,16 @@
     </form>
     <div id="quiz-dialog-content"></div>
   </dialog>
+
+  <dialog id="place-description-dialog" class="place-description-dialog">
+    <form method="dialog">
+      <button class="dialog-close" value="close" aria-label="장소 설명 닫기">×</button>
+    </form>
+    <div id="place-description-content"></div>
+  </dialog>
+
+  <input id="photo-upload-input" class="photo-upload-input" type="file" accept="image/*" capture="environment" aria-label="현장 사진 선택">
+  <iframe id="photo-upload-frame" class="photo-upload-frame" name="photo-upload-frame" title="현장 사진 업로드 결과"></iframe>
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 

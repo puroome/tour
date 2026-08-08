@@ -24,18 +24,20 @@ test("distanceMeters returns a realistic Seoul-to-Busan distance", () => {
   );
   assert.ok(meters > 320_000 && meters < 340_000);
   assert.equal(formatDistance(987), "987m");
+  assert.equal(formatDistance(1000), "1km");
+  assert.equal(formatDistance(5000), "5km");
   assert.equal(formatDistance(1530), "1.5km");
 });
 
 test("normalizeQuizRows maps the Korean sheet schema and ignores inactive rows", () => {
-  const cols = ["퀴즈ID", "지역ID", "장소명", "테마", "위도", "경도", "반경m", "문제", "보기1", "보기2", "보기3", "보기4", "정답", "해설", "활성"]
+  const cols = ["퀴즈ID", "지역ID", "장소명", "설명", "테마", "위도", "경도", "반경m", "문제", "보기1", "보기2", "보기3", "보기4", "정답", "해설", "활성"]
     .map((label, index) => ({ id: String.fromCharCode(65 + index), label }));
   const response = {
     table: {
       cols,
       rows: [
-        { c: ["q1", "서울특별시", "서울광장", "역사", 37.5, 126.9, 150, "문제", "가", "나", "다", "라", 2, "해설", true].map((v) => ({ v })) },
-        { c: ["q2", "부산광역시", "부산시청", "행정", 35.1, 129.0, 150, "문제", "가", "나", "다", "라", 1, "해설", false].map((v) => ({ v })) }
+        { c: ["q1", "서울특별시", "서울광장", "서울광장 소개", "역사", 37.5, 126.9, 150, "문제", "가", "나", "다", "라", 2, "해설", true].map((v) => ({ v })) },
+        { c: ["q2", "부산광역시", "부산시청", "부산시청 소개", "행정", 35.1, 129.0, 150, "문제", "가", "나", "다", "라", 1, "해설", false].map((v) => ({ v })) }
       ]
     }
   };
@@ -44,6 +46,8 @@ test("normalizeQuizRows maps the Korean sheet schema and ignores inactive rows",
   assert.equal(rows[0].id, "q1");
   assert.equal(rows[0].answerIndex, 1);
   assert.equal(rows[0].radius, 150);
+  assert.equal(rows[0].description, "서울광장 소개");
+  assert.equal(rows[0].theme, "역사");
 });
 
 test("rankNearbyQuizzes includes a capped GPS accuracy allowance", () => {

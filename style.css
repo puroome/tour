@@ -270,6 +270,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 .icon-button, .user-chip { border: 1px solid var(--line); background: rgba(255,253,247,.8); }
 .icon-button { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; color: var(--ink); font-size: 20px; text-decoration: none; }
+.teacher-link { border: 0; border-radius: 0; background: transparent; }
+.teacher-link svg { width: 28px; height: 28px; display: block; }
 .user-chip { height: 44px; display: flex; align-items: center; gap: 9px; padding: 4px 13px 4px 4px; cursor: pointer; border-radius: 24px; font-size: 13px; font-weight: 700; }
 .user-chip img { width: 34px; height: 34px; object-fit: cover; border-radius: 50%; background: var(--paper-deep); }
 
@@ -344,8 +346,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .section-heading.compact { align-items: center; }
 .section-heading h2 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 26px; font-weight: 400; }
 .section-heading.compact h2 { flex: 1 1 auto; min-width: 0; }
-.heading-address { color: var(--ink-soft); font-family: "Noto Sans KR", sans-serif; font-size: 50%; font-weight: 400; overflow-wrap: anywhere; }
+.heading-address { padding: 0; border: 0; color: var(--ink-soft); background: transparent; font-family: "Noto Sans KR", sans-serif; font-size: 50%; font-weight: 400; overflow-wrap: anywhere; cursor: pointer; }
 .heading-address:empty { display: none; }
+.heading-address { transition: color .18s ease, font-weight .18s ease, text-shadow .18s ease; }
+.heading-address:hover { color: var(--mint-deep); font-weight: 600; text-shadow: 0 1px 7px rgba(23, 63, 53, .2); }
+.heading-address:focus-visible { color: var(--mint-deep); font-weight: 600; outline: 2px solid rgba(47, 122, 96, .42); outline-offset: 3px; border-radius: 4px; }
 .legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--ink-soft); font-size: 11px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 11px; height: 11px; border-radius: 3px; }
@@ -373,7 +378,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .empty-state { min-height: 540px; display: grid; align-content: center; justify-items: center; padding: 25px; text-align: center; }
 .empty-compass { width: 75px; height: 75px; display: grid; place-items: center; margin-bottom: 16px; border: 1px dashed var(--mint-deep); border-radius: 50%; color: var(--mint-deep); background: #e5f0e9; font-size: 31px; }
 .empty-locate { padding: 0; cursor: pointer; }
-.empty-locate svg { width: 40px; height: 40px; color: #ea4335; }
+.empty-locate span { display: block; line-height: 1; }
 .empty-locate:hover { background: #d7e9df; }
 .empty-state h3 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 21px; }
 .empty-state p { max-width: 240px; margin: 10px 0; color: var(--ink-soft); font-size: 13px; }
@@ -381,14 +386,18 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .quest-item { position: relative; overflow: hidden; padding: 18px; border: 1px solid var(--line); border-radius: 17px; background: var(--card); }
 .quest-item.in-range { border-color: rgba(237,139,82,.65); box-shadow: inset 4px 0 0 var(--orange); }
 .quest-item.owned { background: #dbe8dd; }
+.quest-item.photo-pending { border-color: #efc1c8; background: #fff0f2; box-shadow: inset 4px 0 0 #dc8c98; }
 .quest-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .distance-badge { padding: 4px 8px; border-radius: 8px; color: var(--ink-soft); background: var(--paper); font-size: 10px; font-weight: 800; }
 .range-badge { color: var(--orange); font-size: 10px; font-weight: 800; }
 .range-badge.done { color: var(--blue); }
+.range-badge.photo-pending { color: #b94f60; }
 .quest-item h3 { margin: 10px 0 4px; font-family: "Gowun Dodum", serif; font-size: 21px; font-weight: 400; }
 .quest-item p { margin: 0; color: var(--ink-soft); font-size: 12px; }
 .quest-item button { width: 100%; min-height: 42px; margin-top: 15px; padding: 9px 12px; cursor: pointer; border: 1px solid var(--ink); border-radius: 10px; color: #fff; background: var(--ink); font-size: 12px; font-weight: 800; }
 .quest-item button:disabled { cursor: not-allowed; color: var(--ink-soft); border-color: var(--line); background: var(--paper); }
+.quest-item .quest-action.photo-action { border-color: #c96370; background: #c96370; }
+.quest-item .quest-action.photo-action:hover { background: #ae4556; }
 
 .how-section { width: min(1240px, calc(100% - 48px)); margin: 100px auto 84px; text-align: center; }
 .how-section h2 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 36px; font-weight: 400; }
@@ -511,6 +520,13 @@ body { background: #dfe5df; }
   overflow: hidden;
   background: var(--paper);
   box-shadow: 0 0 48px rgba(23, 63, 53, .18);
+}
+
+.app-shell,
+.app-shell * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .topbar {
@@ -722,7 +738,6 @@ body { background: #dfe5df; }
   padding: 18px;
 }
 .empty-compass { width: 62px; height: 62px; margin-bottom: 12px; font-size: 26px; }
-.empty-locate svg { width: 33px; height: 33px; }
 .empty-state h3 { font-size: 18px; }
 .empty-state p { margin: 6px 0 0; }
 .quest-list { grid-template-columns: 1fr; }
@@ -822,6 +837,8 @@ body { background: #dfe5df; }
 .bottom-nav a span { color: var(--ink); font-size: 19px; line-height: 1; }
 .bottom-nav a.active { color: var(--mint-deep); }
 .bottom-nav a.active span { color: var(--orange); }
+.bottom-nav a .nav-icon { width: 22px; height: 22px; display: grid; place-items: center; }
+.bottom-nav a .nav-icon svg { width: 22px; height: 22px; display: block; }
 
 #login-screen,
 #permission-request-screen,
@@ -861,4 +878,93 @@ body { background: #dfe5df; }
   .passport-stamp { width: 148px; height: 148px; }
   .passport-stamp span { font-size: 55px; }
   .content-stack { padding-inline: 9px; }
+}
+
+/* Place descriptions, theme grouping, and regional passport statistics */
+.quest-item .place-name-button,
+.map-place-name {
+  width: auto;
+  min-height: 0;
+  display: inline;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+}
+.quest-item .place-name-button:hover,
+.quest-item .place-name-button:focus-visible,
+.map-place-name:hover,
+.map-place-name:focus-visible { color: var(--mint-deep); text-decoration: underline; text-underline-offset: 4px; }
+
+.place-description-dialog {
+  width: min(520px, calc(100% - 28px));
+  max-height: min(680px, calc(100vh - 28px));
+  overflow: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 22px 60px rgba(10, 38, 30, .32);
+}
+.place-description-dialog::backdrop { background: rgba(18, 42, 35, .67); backdrop-filter: blur(5px); }
+.place-description-head { padding: 34px 34px 24px; color: #fff; background: var(--ink); }
+.place-description-head .eyebrow { color: var(--orange-soft); }
+.place-description-head h2 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 28px; font-weight: 400; line-height: 1.45; }
+.place-description-body { padding: 28px 34px 34px; }
+.place-description-body p { margin: 0; color: var(--ink-soft); font-size: 15px; line-height: 1.8; white-space: pre-wrap; }
+.place-photo { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.place-photo h3 { margin: 0 0 10px; color: var(--ink); font-size: 13px; }
+.place-photo img { display: block; width: 100%; max-height: 300px; object-fit: cover; border-radius: 12px; background: #edf1ec; }
+.photo-upload-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.photo-upload-frame { position: fixed; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
+
+.passport-region-picker { position: relative; z-index: 1; width: 100%; display: grid; gap: 5px; }
+.passport-region-picker > span { color: rgba(255, 248, 232, .72); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.passport-region-picker select { width: 100%; min-height: 36px; padding: 7px 32px 7px 11px; border: 1px solid rgba(255, 255, 255, .25); border-radius: 10px; color: #fff8e8; background: rgba(0, 0, 0, .16); font: inherit; font-size: 12px; }
+.passport-region-picker option { color: var(--ink); background: #fffdf7; }
+.passport-stat-layout { width: 100%; display: flex; align-items: center; justify-content: center; transition: grid-template-columns .3s ease, gap .3s ease; }
+.passport-overall-stat { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 25px; transition: transform .3s ease; }
+.passport-theme-stats { min-width: 0; padding: 12px; border: 1px solid rgba(255, 255, 255, .16); border-radius: 15px; background: rgba(0, 0, 0, .12); }
+.passport-theme-heading { margin-bottom: 10px; }
+.passport-theme-heading small { color: var(--orange-soft); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.passport-theme-heading h2 { margin: 3px 0 0; color: #fff8e8; font-family: "Gowun Dodum", serif; font-size: 17px; font-weight: 400; }
+.passport-theme-list { display: grid; gap: 9px; max-height: 240px; overflow: auto; padding-right: 2px; }
+.passport-theme-row { display: grid; gap: 5px; }
+.passport-theme-row > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.passport-theme-row strong { overflow: hidden; color: #fff8e8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.passport-theme-row span { flex: 0 0 auto; color: rgba(255, 248, 232, .67); font-size: 10px; }
+.passport-theme-row .progress-track { height: 4px; margin: 0; }
+.passport-stat-layout.region-selected { display: grid; grid-template-columns: minmax(116px, .85fr) minmax(0, 1.35fr); align-items: start; gap: 13px; }
+.passport-stat-layout.region-selected .passport-overall-stat { align-items: stretch; gap: 9px; }
+.passport-stat-layout.region-selected .passport-stamp { width: 104px; height: 104px; }
+.passport-stat-layout.region-selected .passport-stamp span { font-size: 39px; }
+.passport-stat-layout.region-selected .passport-stamp small { font-size: 9px; }
+.passport-stat-layout.region-selected .passport-detail strong { margin: 1px 0; font-size: 30px; }
+.passport-stat-layout.region-selected .passport-detail p,
+.passport-stat-layout.region-selected .passport-detail small { font-size: 8px; }
+.passport-stat-layout.region-selected .passport-detail .progress-track { height: 4px; margin: 5px 0 6px; }
+
+.map-theme-group { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: rgba(255, 253, 247, .72); }
+.map-theme-group + .map-theme-group { margin-top: 8px; }
+.map-theme-group summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; cursor: pointer; color: var(--ink); font-size: 13px; font-weight: 800; list-style: none; }
+.map-theme-group summary::-webkit-details-marker { display: none; }
+.map-theme-group summary::before { content: "›"; margin-right: 5px; color: var(--orange); font-size: 17px; transition: transform .2s ease; }
+.map-theme-group summary span { flex: 1; }
+.map-theme-group summary small { color: var(--ink-soft); font-size: 10px; }
+.map-theme-group[open] summary { border-bottom: 1px solid var(--line); }
+.map-theme-group[open] summary::before { transform: rotate(90deg); }
+.map-theme-place-list { display: grid; gap: 8px; padding: 9px; }
+.map-place-item.completed { border-color: #e3a4ad; background: #f6d8dd; }
+.map-place-name { overflow: hidden; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 390px) {
+  .passport-stat-layout.region-selected { grid-template-columns: 1fr; }
+  .passport-stat-layout.region-selected .passport-overall-stat { width: min(150px, 100%); margin: 0 auto; }
 }
