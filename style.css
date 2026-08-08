@@ -452,6 +452,8 @@ footer p { margin: 0; }
 .success-view h2 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 32px; font-weight: 400; }
 .success-view p { color: var(--ink-soft); }
 .success-view button { margin-top: 13px; }
+.success-view .success-photo-button { border-color: #c96370; background: #c96370; }
+.success-view .success-photo-button:hover { background: #ae4556; }
 
 .toast { position: fixed; z-index: 50; left: 50%; bottom: max(22px, env(safe-area-inset-bottom)); min-width: 240px; max-width: calc(100% - 32px); padding: 12px 17px; border-radius: 12px; color: #fff; background: rgba(23,63,53,.95); box-shadow: 0 12px 30px rgba(23,63,53,.22); text-align: center; font-size: 13px; font-weight: 700; transform: translateX(-50%); }
 

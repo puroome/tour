@@ -1098,6 +1098,8 @@ async function uploadSelectedFieldPhoto(file) {
     updateProgressUI();
     await saveProgress();
     renderQuestList(visibleQuizMissions());
+    const quizDialog = $("quiz-dialog");
+    if (quizDialog.open) quizDialog.close();
     showPlaceDescription(mission);
     showToast("현장 사진을 올렸습니다.");
   } catch (error) {
@@ -1488,15 +1490,14 @@ function showSuccess(quiz, alreadyOwned) {
     <div class="success-view">
       <div class="success-seal">${alreadyOwned ? "복습" : "정답"}</div>
       <p class="eyebrow">정답입니다</p>
-      <h2>${escapeHTML(quiz.placeName)} ${alreadyOwned ? "복습 완료!" : "사진을 올리면 탐방 완료!"}</h2>
+      <h2>${escapeHTML(quiz.placeName)}</h2>
       ${regionCleared ? `<strong class="region-clear-message">${escapeHTML(quiz.regionId)} 지역 완료</strong>` : ""}
       <p>${escapeHTML(explanation)}</p>
-      <button id="success-close" class="primary-button" type="button">지도로 돌아가기</button>
+      <button id="success-photo-upload" class="primary-button success-photo-button" type="button">현장 사진 올리기</button>
     </div>`;
-  $("success-close").addEventListener("click", () => {
+  $("success-photo-upload").addEventListener("click", () => {
+    startFieldPhotoCapture(quiz);
     $("quiz-dialog").close();
-    navigateToView("map");
-    requestAnimationFrame(() => zoomToMapRegion(quiz.regionId));
   });
   renderQuestList(visibleQuizMissions());
 }
