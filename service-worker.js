@@ -1,4 +1,4 @@
-const CACHE_NAME = "geo-quest-v17";
+const CACHE_NAME = "geo-quest-v18";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const APP_SHELL = [
   "./manifest.json",
   "./favicon.png",
   "./google.png",
+  "./passport.webp",
   "./icon-192.png",
   "./icon-512.png",
   "./js/app.js",
@@ -18,8 +19,12 @@ const APP_SHELL = [
 self.addEventListener("install", (event) => {
   // Without cache: "reload" a new worker happily fills its fresh cache from the browser's
   // stale HTTP cache, so a deploy can install and still serve the previous build.
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => (
-    cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" })))
+  // addAll would reject the whole install over one missing file, so each asset is added on
+  // its own and a miss only costs that asset its offline copy.
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => Promise.all(
+    APP_SHELL.map((url) => cache.add(new Request(url, { cache: "reload" })).catch((error) => {
+      console.warn("Precache skipped", url, error);
+    }))
   )));
   self.skipWaiting();
 });

@@ -250,7 +250,14 @@ function verifiedPhotoUploader_(idToken) {
   const canEdit = permission.canEdit === true;
   if (studentId && !/^\d{5}$/.test(studentId)) throw new Error('user 탭의 학번은 숫자 5자리여야 합니다.');
   if (!studentId && !canEdit) throw new Error('user 탭에서 학번을 확인해 주세요.');
-  return { studentId: studentId || 'master' };
+  return { filePrefix: studentId || googleAccountId_(email) };
+}
+
+// 관리자는 학번을 비워 둘 수 있는데, 관리자가 여러 명이면 모두 같은 이름으로 저장됩니다.
+// 그래서 학번 자리에 구글 계정 아이디(@ 앞부분)를 넣어 서로 구분합니다.
+function googleAccountId_(email) {
+  const localPart = String(email || '').split('@')[0].replace(/[^A-Za-z0-9._-]/g, '');
+  return localPart || 'master';
 }
 
 function uploadFieldPhoto_(payload) {
@@ -264,7 +271,7 @@ function uploadFieldPhoto_(payload) {
     throw new Error('사진은 5MB 이하로 올려 주세요.');
   }
   const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
-  const fileName = `${uploader.studentId}-${timestamp}.jpg`;
+  const fileName = `${uploader.filePrefix}-${timestamp}.jpg`;
   const folder = DriveApp.getFolderById(FIELD_PHOTO_FOLDER_ID);
   const file = folder.createFile(Utilities.newBlob(bytes, 'image/jpeg', fileName));
   return {

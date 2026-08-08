@@ -844,7 +844,9 @@ function updateMapState({ renderSummary = false } = {}) {
 
 function updateProgressUI() {
   syncDerivedOwnership();
-  const missions = quizMissions();
+  // A selected region scopes the whole stat block to that region's own missions, matching
+  // the per-theme breakdown below it instead of diluting the rate against every place.
+  const missions = state.passportRegion ? missionsForRegion(state.passportRegion) : quizMissions();
   const ownedCount = missions.filter(isMissionOwned).length;
   const rate = missions.length ? Math.round(ownedCount / missions.length * 100) : 0;
   $("owned-count").textContent = String(ownedCount);
@@ -1635,11 +1637,11 @@ function updateUserUI(permission) {
   const displayName = permission.displayName || "학생";
   state.canEdit = permission.canEdit === true;
   state.studentId = String(permission.studentId || "").trim();
-  $("user-name").textContent = displayName;
-  $("passport-user-name").textContent = displayName;
-  $("user-photo").src = state.user.photoURL || "./icon-192.png";
-  $("user-photo").alt = `${displayName} 프로필`;
-  $("sheet-link").classList.toggle("hidden", !state.canEdit);
+  const nameButton = $("passport-user-name");
+  nameButton.textContent = displayName;
+  // Only an admin has a sheet to open, so only an admin sees the name read as a link.
+  nameButton.classList.toggle("is-admin-link", state.canEdit);
+  nameButton.title = state.canEdit ? "관리자 시트 열기" : "";
 }
 
 async function enterApp(permission) {
@@ -1650,7 +1652,6 @@ async function enterApp(permission) {
   buildMap();
   updateUserUI(permission);
   updateProgressUI();
-  $("sheet-link").href = APP_CONFIG.sheetUrl;
   showScreen("app");
   startLocationWatch();
   const requestedView = location.hash.slice(1);
@@ -1831,8 +1832,13 @@ function bindEvents() {
   });
   $("denied-logout-button").addEventListener("click", logout);
   $("retry-permission-button").addEventListener("click", () => state.user && handleSignedInUser(state.user));
-  $("user-button").addEventListener("click", () => {
+  // The topbar is gone, so the passport cover itself carries these two actions: the
+  // emblem logs out, and the name opens the admin sheet (only when canEdit is true).
+  $("passport-logout-button").addEventListener("click", () => {
     if (confirm("로그아웃할까요?")) logout();
+  });
+  $("passport-user-name").addEventListener("click", () => {
+    if (state.canEdit) window.open(APP_CONFIG.sheetUrl, "_blank", "noopener");
   });
   $("location-button").addEventListener("click", refreshCurrentLocation);
   $("quest-heading-address").addEventListener("click", refreshCurrentLocation);

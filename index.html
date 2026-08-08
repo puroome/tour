@@ -81,26 +81,18 @@
   </section>
 
   <main id="app-shell" class="app-shell hidden">
-    <header class="topbar">
-      <a class="brand" href="#passport" data-view="passport" aria-label="발자국 홈">
-        <span class="brand-mark small"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.16 7.6C15.66 7.6 17.96 9.1 17.96 11.4C17.96 13.3 16.76 14.7 16.16 16.3C15.56 17.9 15.86 18.9 15.86 20C15.86 21.9 14.06 23 11.96 23C9.86 23 8.06 21.9 8.06 20C8.06 18.9 8.36 17.9 7.76 16.3C7.16 14.7 5.96 13.3 5.96 11.4C5.96 9.1 8.36 7.6 12.16 7.6Z"/><ellipse cx="7.26" cy="4.5" rx="2.15" ry="2.6" transform="rotate(-20 7.26 4.5)"/><ellipse cx="11.46" cy="2.9" rx="1.55" ry="1.9" transform="rotate(-6 11.46 2.9)"/><ellipse cx="14.96" cy="3.4" rx="1.4" ry="1.75" transform="rotate(6 14.96 3.4)"/><ellipse cx="17.66" cy="5" rx="1.25" ry="1.55" transform="rotate(18 17.66 5)"/></svg></span>
-        <span><b>발자국</b><small>LOCAL QUEST</small></span>
-      </a>
-      <div class="topbar-actions">
-        <a id="sheet-link" class="icon-button teacher-link hidden" href="#" target="_blank" rel="noopener" title="관리자 시트 열기" aria-label="관리자 시트 열기"><svg viewBox="0 0 32 32" aria-hidden="true"><path fill="#22a447" d="M7 2h12l7 7v19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path fill="#8ce29e" d="M19 2v7h7Z"/><path fill="#fff" d="M10 15h12v10H10z"/><path fill="#22a447" d="M11 16h3v2h-3zm4 0h3v2h-3zm4 0h3v2h-3zm-8 3h3v2h-3zm4 0h3v2h-3zm4 0h3v2h-3zm-8 3h3v2h-3zm4 0h3v2h-3zm4 0h3v2h-3z"/></svg></a>
-        <button id="user-button" class="user-chip" type="button" aria-label="로그아웃" title="로그아웃">
-          <img id="user-photo" src="./icon-192.png" alt="">
-          <span id="user-name">학생</span>
-        </button>
-      </div>
-    </header>
-
     <section id="passport" class="app-view passport-screen active" aria-label="탐험 여권">
       <div class="passport-card" aria-label="나의 탐험 기록">
-        <div class="passport-top"><span>대한민국 탐험 여권</span><span>✦</span></div>
+        <div class="passport-cover-hit" aria-hidden="true">
+          <button id="passport-logout-button" class="passport-emblem-hit" type="button" aria-label="로그아웃" title="로그아웃"></button>
+        </div>
+        <header class="passport-cover">
+          <h1 class="passport-cover-title">대한민국 방문 여권</h1>
+          <p class="passport-cover-latin"><span>KOREA SPECIAL</span><span>PASSPORT</span></p>
+        </header>
+
         <div class="passport-profile">
-          <span class="passport-emblem"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.16 7.6C15.66 7.6 17.96 9.1 17.96 11.4C17.96 13.3 16.76 14.7 16.16 16.3C15.56 17.9 15.86 18.9 15.86 20C15.86 21.9 14.06 23 11.96 23C9.86 23 8.06 21.9 8.06 20C8.06 18.9 8.36 17.9 7.76 16.3C7.16 14.7 5.96 13.3 5.96 11.4C5.96 9.1 8.36 7.6 12.16 7.6Z"/><ellipse cx="7.26" cy="4.5" rx="2.15" ry="2.6" transform="rotate(-20 7.26 4.5)"/><ellipse cx="11.46" cy="2.9" rx="1.55" ry="1.9" transform="rotate(-6 11.46 2.9)"/><ellipse cx="14.96" cy="3.4" rx="1.4" ry="1.75" transform="rotate(6 14.96 3.4)"/><ellipse cx="17.66" cy="5" rx="1.25" ry="1.55" transform="rotate(18 17.66 5)"/></svg></span>
-          <span><small>EXPLORER</small><strong id="passport-user-name">학생</strong></span>
+          <span><small>EXPLORER</small><button id="passport-user-name" class="passport-name" type="button">학생</button></span>
         </div>
         <div class="passport-body">
           <label class="passport-region-picker" for="passport-region-select">

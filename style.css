@@ -191,8 +191,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
   box-shadow: inset 0 0 0 6px var(--card), inset 0 0 0 7px rgba(23,63,53,.18);
 }
 .brand-mark svg { width: 34px; height: 34px; color: var(--card); }
-.brand-mark.small { width: 44px; height: 44px; margin: 0; box-shadow: inset 0 0 0 4px var(--card); }
-.brand-mark.small svg { width: 21px; height: 21px; }
 .login-card h2 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 34px; font-weight: 400; }
 .login-card > p:not(.eyebrow):not(.privacy-note):not(.inline-error) { color: var(--ink-soft); margin: 14px auto 30px; }
 .google-button {
@@ -250,30 +248,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .permission-form .text-button { justify-self: center; }
 
 .app-shell { position: relative; z-index: 1; }
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: 76px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 max(28px, calc((100vw - 1240px) / 2));
-  border-bottom: 1px solid rgba(23,63,53,.12);
-  background: rgba(245,240,229,.9);
-  backdrop-filter: blur(16px);
-}
-.brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
-.brand > span:last-child { display: grid; line-height: 1.1; }
-.brand b { font-family: "Gowun Dodum", serif; font-size: 20px; }
-.brand small { margin-top: 5px; color: var(--ink-soft); font-size: 8px; font-weight: 800; letter-spacing: .22em; }
-.topbar-actions { display: flex; align-items: center; gap: 10px; }
-.icon-button, .user-chip { border: 1px solid var(--line); background: rgba(255,253,247,.8); }
-.icon-button { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; color: var(--ink); font-size: 20px; text-decoration: none; }
-.teacher-link { border: 0; border-radius: 0; background: transparent; }
-.teacher-link svg { width: 28px; height: 28px; display: block; }
-.user-chip { height: 44px; display: flex; align-items: center; gap: 9px; padding: 4px 13px 4px 4px; cursor: pointer; border-radius: 24px; font-size: 13px; font-weight: 700; }
-.user-chip img { width: 34px; height: 34px; object-fit: cover; border-radius: 50%; background: var(--paper-deep); }
 
 .hero-section {
   width: min(1240px, calc(100% - 48px));
@@ -320,8 +294,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
   box-shadow: 0 26px 55px rgba(23,63,53,.22);
   transform: rotate(1.5deg);
 }
-.passport-card::after { content: "✦"; position: absolute; right: -14px; bottom: -75px; color: rgba(255,255,255,.06); font-size: 210px; }
-.passport-top { display: flex; justify-content: space-between; padding: 22px 25px; border-bottom: 1px dashed rgba(255,255,255,.28); font-family: "Gowun Dodum", serif; font-size: 14px; letter-spacing: .08em; }
 .passport-body { position: relative; z-index: 1; display: grid; grid-template-columns: 130px 1fr; gap: 25px; align-items: center; padding: 29px 25px; }
 .passport-stamp { width: 126px; height: 126px; display: grid; place-content: center; padding: 0; cursor: pointer; border: 2px solid var(--orange-soft); border-radius: 50%; box-shadow: inset 0 0 0 5px var(--ink), inset 0 0 0 6px rgba(248,210,185,.45); color: inherit; background: transparent; text-align: center; }
 .passport-stamp span { font-family: "Gowun Dodum", serif; font-size: 49px; line-height: 1; }
@@ -479,10 +451,6 @@ footer p { margin: 0; }
   .route-illustration { left: 18px; right: 15px; }
   .login-card { padding: 42px 26px; }
   .message-card { padding: 40px 24px; }
-  .topbar { height: 68px; padding: 0 16px; }
-  .brand b { font-size: 17px; }
-  .brand small, .teacher-link, .user-chip span { display: none; }
-  .user-chip { width: 44px; padding: 4px; }
   .hero-section, .content-grid, .how-section { width: calc(100% - 28px); }
   .hero-section { padding: 54px 0 45px; }
   .hero-copy h1 { font-size: 42px; }
@@ -535,25 +503,6 @@ body { background: #dfe5df; }
   -webkit-touch-callout: none;
 }
 
-.topbar {
-  position: sticky;
-  top: 0;
-  width: 100%;
-  height: 64px;
-  padding: 0 16px;
-  background: rgba(245, 240, 229, .96);
-}
-
-.brand-mark.small { width: 40px; height: 40px; }
-.brand-mark.small svg { width: 19px; height: 19px; }
-.brand b { font-size: 17px; }
-.brand small { display: none; }
-.topbar-actions { gap: 7px; }
-.teacher-link { display: grid; width: 40px; height: 40px; }
-.user-chip { width: 40px; height: 40px; padding: 3px; border: 0; background: transparent; }
-.user-chip img { width: 34px; height: 34px; }
-.user-chip span { display: none; }
-
 .passport-screen {
   min-height: 0;
   padding: 12px 14px 8px;
@@ -562,7 +511,8 @@ body { background: #dfe5df; }
 .app-view {
   display: none;
   width: 100%;
-  height: calc(100svh - 130px);
+  /* 상단 고정바가 없어져서 하단 탭바(66px)만큼만 빼면 됩니다. */
+  height: calc(100svh - 66px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -572,20 +522,29 @@ body { background: #dfe5df; }
 .app-view.active { display: block; }
 .passport-screen.active { display: block; }
 
+/* 실제 대한민국 여권 표지의 남색과 은박 활자를 따릅니다. */
 .passport-card {
+  /* 표지 이미지에서 그대로 뽑은 남색. 이미지 아래쪽 끝 색과 같아야 경계가 보이지 않습니다. */
+  --passport-navy: #273270;
+  --passport-foil: #eef0fb;
   position: relative;
   width: 100%;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: #f8f2df;
-  border: 1px solid rgba(255, 255, 255, .12);
+  color: var(--passport-foil);
+  border: 1px solid rgba(255, 255, 255, .1);
   border-radius: 30px;
-  background:
-    radial-gradient(circle at 78% 78%, rgba(143, 197, 168, .13), transparent 34%),
-    linear-gradient(160deg, #164b3e, #0d392f);
-  box-shadow: 0 20px 42px rgba(23, 63, 53, .24);
+  /* 실제 여권 표지 이미지. 파일이 없어도 남색 바탕은 그대로 유지됩니다. */
+  background-color: var(--passport-navy);
+  background-image: url("./passport.webp");
+  background-repeat: no-repeat;
+  background-position: center top;
+  /* 카드 너비에 맞춰 넣습니다. 세로를 기준으로 늘리면(cover) 가로가 절반 넘게 잘려
+     나선 문양의 중심을 잃고, 문장 위치가 카드 높이에 따라 움직여 제목과 겹칩니다. */
+  background-size: 100% auto;
+  box-shadow: 0 20px 42px rgba(24, 30, 82, .34);
   transform: none;
 }
 
@@ -596,49 +555,101 @@ body { background: #dfe5df; }
   position: absolute;
   inset: 10px;
   pointer-events: none;
-  border: 1px solid rgba(248, 242, 223, .14);
+  border: 1px solid rgba(238, 240, 251, .13);
   border-radius: 22px;
 }
 
-.passport-card::after {
-  right: -8px;
-  bottom: 40px;
-  color: rgba(255, 255, 255, .045);
-  font-size: 240px;
+/* 상단바가 없어졌으므로 로그아웃은 표지 나라문장을 눌러 대신합니다. 문장 자체는
+   배경 이미지라 클릭을 받을 수 없어, 같은 자리에 보이지 않는 버튼을 겹쳐 둡니다. 이
+   레이어는 이미지와 같은 종횡비(799:1088)를 가져서, 카드 너비가 달라져도 버튼이 항상
+   실제 문장 위치(이미지에서 실측한 x 529~747, y 63~281)에 맞습니다. */
+.passport-cover-hit {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  width: 100%;
+  aspect-ratio: 799 / 1088;
+  pointer-events: none;
+}
+.passport-emblem-hit {
+  position: absolute;
+  top: 5.8%;
+  right: 6.5%;
+  width: 27.3%;
+  height: 20%;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
-.passport-top {
+.passport-cover {
   position: relative;
   z-index: 1;
-  min-height: 58px;
-  align-items: center;
-  padding: 18px 24px;
-  font-size: 14px;
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  /* 배경 이미지에서 실제로 측정한 값: 나라문장은 리본까지 포함해 카드 너비의 35.2%
+     지점(281/799)에서 끝납니다. 오른쪽 끝은 6.5%(52/799) 안쪽입니다. 퍼센트 여백도
+     너비를 기준으로 계산되므로 화면 크기가 달라져도 이 정렬이 유지됩니다. */
+  padding: 36% 6.5% 14px;
+  text-align: right;
+}
+.passport-cover-title {
+  margin: 0;
+  color: var(--passport-foil);
+  font-size: 27px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  line-height: 1.1;
+}
+.passport-cover-latin {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+  margin: 0;
+  color: var(--passport-foil);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  line-height: 1.22;
 }
 
 .passport-profile {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 11px;
-  padding: 17px 24px 0;
+  padding: 2px 26px 0;
 }
 
-.passport-emblem {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border: 1px solid rgba(248, 242, 223, .46);
-  border-radius: 50%;
-}
-.passport-emblem svg { width: 22px; height: 22px; color: #f8f2df; }
+.passport-profile > span:first-child { display: grid; }
+.passport-profile small { color: rgba(238, 240, 251, .5); font-size: 8px; font-weight: 800; letter-spacing: .18em; }
 
-.passport-profile > span:last-child { display: grid; }
-.passport-profile small { color: rgba(255, 255, 255, .45); font-size: 8px; font-weight: 800; letter-spacing: .18em; }
-.passport-profile strong { margin-top: 2px; color: #fff8e8; font-size: 14px; }
+/* 관리자 시트 링크는 이름 텍스트가 대신합니다. Permission=yes, Edit=yes 계정에서만
+   눌리고(js가 is-admin-link를 붙임), 학생 계정에서는 평범한 글자로만 보입니다. */
+.passport-name {
+  all: unset;
+  display: block;
+  margin-top: 2px;
+  color: var(--passport-foil);
+  font-size: 14px;
+  cursor: default;
+}
+.passport-name.is-admin-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: rgba(238, 240, 251, .55);
+  text-underline-offset: 3px;
+}
+.passport-name.is-admin-link:hover,
+.passport-name.is-admin-link:focus-visible { text-decoration-style: solid; }
 
 .passport-body {
   position: relative;
