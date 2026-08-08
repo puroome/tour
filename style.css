@@ -398,6 +398,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .quest-item button:disabled { cursor: not-allowed; color: var(--ink-soft); border-color: var(--line); background: var(--paper); }
 .quest-item .quest-action.photo-action { border-color: #c96370; background: #c96370; }
 .quest-item .quest-action.photo-action:hover { background: #ae4556; }
+.quest-action-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 15px; }
+.quest-item .quest-action-group .quest-action { width: 100%; margin-top: 0; }
+.quest-item .quest-action.completion-action { border-color: #195a98; background: #195a98; }
+.quest-item .quest-action.completion-action:hover { background: #124775; }
 
 .how-section { width: min(1240px, calc(100% - 48px)); margin: 100px auto 84px; text-align: center; }
 .how-section h2 { margin: 0; font-family: "Gowun Dodum", serif; font-size: 36px; font-weight: 400; }

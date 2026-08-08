@@ -1369,6 +1369,11 @@ function renderQuestList(items) {
     const activationDistance = formatDistance(activationRadius);
     const article = document.createElement("article");
     article.className = `quest-item${item.inRange ? " in-range" : ""}${owned ? " owned" : ""}${answered && !hasPhoto ? " photo-pending" : ""}`;
+    const actionMarkup = !item.inRange
+      ? `<button type="button" class="quest-action" disabled>${activationDistance} 안으로 이동하세요</button>`
+      : owned
+        ? `<div class="quest-action-group"><button type="button" class="quest-action completion-action quiz-retry-action">퀴즈 다시 풀기</button><button type="button" class="quest-action completion-action photo-retry-action">사진 다시 올리기</button></div>`
+        : `<button type="button" class="quest-action${answered ? " photo-action" : ""}">${answered ? "현장 사진 올리기" : "현장 퀴즈 도전"}</button>`;
     article.innerHTML = `
       <div class="quest-meta">
         <span class="distance-badge">${escapeHTML(formatDistance(item.distance))}</span>
@@ -1376,12 +1381,17 @@ function renderQuestList(items) {
       </div>
       <h3><button type="button" class="place-name-button">${escapeHTML(placeLabel(item))}</button></h3>
       <p>${escapeHTML(item.regionId)} · ${owned ? "탐방 완료" : answered ? "정답 완료 · 사진 업로드 대기" : "미획득 탐방지"}</p>
-      <button type="button" class="quest-action${answered ? " photo-action" : ""}" ${item.inRange ? "" : "disabled"}>${item.inRange ? (answered ? (hasPhoto ? "현장 사진 다시 올리기" : "현장 사진 올리기") : "현장 퀴즈 도전") : `${activationDistance} 안으로 이동하세요`}</button>`;
+      ${actionMarkup}`;
     article.querySelector(".place-name-button").addEventListener("click", () => showPlaceDescription(item));
-    article.querySelector(".quest-action").addEventListener("click", () => {
-      if (answered) startFieldPhotoCapture(item);
-      else openQuiz(item);
-    });
+    if (owned) {
+      article.querySelector(".quiz-retry-action").addEventListener("click", () => openQuiz(item));
+      article.querySelector(".photo-retry-action").addEventListener("click", () => startFieldPhotoCapture(item));
+    } else {
+      article.querySelector(".quest-action").addEventListener("click", () => {
+        if (answered) startFieldPhotoCapture(item);
+        else openQuiz(item);
+      });
+    }
     list.appendChild(article);
   });
 }
