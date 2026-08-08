@@ -1023,7 +1023,8 @@ function postFieldPhotoUpload(payload) {
     };
     const onMessage = (event) => {
       const message = event.data;
-      if (event.source !== frame.contentWindow || message?.type !== "geoQuestPhotoUpload" || message.requestId !== requestId) return;
+      const isAppsScriptFrame = /^https:\/\/[^/]*googleusercontent\.com$/u.test(String(event.origin || ""));
+      if (!isAppsScriptFrame || message?.type !== "geoQuestPhotoUpload" || message.requestId !== requestId) return;
       finish(null, message.result);
     };
     window.addEventListener("message", onMessage);
@@ -1072,6 +1073,7 @@ async function uploadSelectedFieldPhoto(file) {
       if (!result?.success || !result.url) throw new Error(result?.message || "사진 업로드에 실패했습니다.");
       state.photoUploads[missionKey(mission)] = {
         url: result.url,
+        fileId: result.fileId || "",
         fileName: result.fileName || "현장 사진.jpg",
         uploadedAt: result.uploadedAt || new Date().toISOString()
       };
@@ -1107,6 +1109,7 @@ function placeLabel(quiz) {
 function showPlaceDescription(place) {
   const description = String(place?.description || "").trim();
   const photo = photoUploadForMission(place);
+  const photoUrl = photoDisplayUrl(photo);
   $("place-description-content").innerHTML = `
     <div class="place-description-head">
       <p class="eyebrow">${escapeHTML(place?.regionId || "현장 정보")}</p>
@@ -1114,13 +1117,26 @@ function showPlaceDescription(place) {
     </div>
     <div class="place-description-body">
       <p>${escapeHTML(description || "관리자가 아직 장소 설명을 등록하지 않았습니다.")}</p>
-      ${photo?.url ? `<section class="place-photo"><h3>현장 사진</h3><img src="${escapeHTML(photo.url)}" alt="${escapeHTML(placeLabel(place))} 현장 사진" loading="lazy"></section>` : ""}
+      ${photoUrl ? `<section class="place-photo"><h3>현장 사진</h3><img src="${escapeHTML(photoUrl)}" alt="${escapeHTML(placeLabel(place))} 현장 사진" loading="lazy"></section>` : ""}
     </div>`;
   $("place-description-dialog").showModal();
 }
 
 function photoUploadForMission(mission) {
   return state.photoUploads[missionKey(mission)] || null;
+}
+
+function photoDisplayUrl(photo) {
+  const storedUrl = String(photo?.url || "").trim();
+  const storedId = String(photo?.fileId || "").trim();
+  if (storedId) return `https://drive.google.com/thumbnail?id=${encodeURIComponent(storedId)}&sz=w1600`;
+  try {
+    const fileId = new URL(storedUrl).searchParams.get("id");
+    if (fileId) return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1600`;
+  } catch {
+    // Keep the original URL for local preview object URLs and unexpected legacy formats.
+  }
+  return storedUrl;
 }
 
 function quizMissions(quizzes = state.quizzes) {

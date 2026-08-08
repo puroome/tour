@@ -58,6 +58,7 @@ function onOpen() {
     .addItem('퀴즈 빈 행 정리', 'compactQuizRows')
     .addItem('퀴즈 데이터 검사', 'validateQuizSheet')
     .addItem('user 명단 → Firebase 동기화', 'syncStudentRosterToFirebase')
+    .addItem('현장 사진 Drive 연결 확인', 'authorizeFieldPhotoDrive')
     .addSeparator()
     .addItem('TourAPI 연결 확인', 'testTourApiConnection')
     .addToUi();
@@ -270,9 +271,19 @@ function uploadFieldPhoto_(payload) {
     success: true,
     fileName: fileName,
     fileId: file.getId(),
-    url: `https://drive.google.com/uc?export=view&id=${encodeURIComponent(file.getId())}`,
+    url: `https://drive.google.com/thumbnail?id=${encodeURIComponent(file.getId())}&sz=w1600`,
     uploadedAt: new Date().toISOString()
   };
+}
+
+function authorizeFieldPhotoDrive() {
+  const folder = DriveApp.getFolderById(FIELD_PHOTO_FOLDER_ID);
+  const permissionCheckFile = folder.createFile(
+    `._field-photo-permission-check-${Date.now()}.txt`,
+    'Drive 사진 업로드 권한 확인용 임시 파일입니다.'
+  );
+  permissionCheckFile.setTrashed(true);
+  SpreadsheetApp.getUi().alert(`현장 사진 Drive 읽기·쓰기 권한 연결 완료\n\n폴더: ${folder.getName()}`);
 }
 
 function syncStudentRosterToFirebase() {
