@@ -669,7 +669,7 @@ function renderMapRegionSummary() {
   $("map-place-list").querySelectorAll(".map-theme-toggle").forEach((button) => {
     const placeList = button.closest(".map-theme-group")?.querySelector(".map-theme-place-list");
     if (button.getAttribute("aria-expanded") === "true" && placeList) {
-      placeList.style.maxHeight = `${placeList.scrollHeight}px`;
+      placeList.style.maxHeight = "none";
     }
     button.onclick = function() { toggleMapThemePanel(this, placeList, button.dataset.themeKey); };
   });
@@ -688,7 +688,16 @@ function toggleMapThemePanel(button, placeList, themeKey) {
   group?.classList.toggle("expanded", !expanded);
   if (expanded) state.expandedMapThemes.delete(themeKey);
   else state.expandedMapThemes.add(themeKey);
-  placeList.style.maxHeight = expanded ? null : `${placeList.scrollHeight}px`;
+  if (expanded) {
+    placeList.style.maxHeight = null;
+    return;
+  }
+  placeList.style.maxHeight = `${placeList.scrollHeight}px`;
+  window.setTimeout(() => {
+    if (placeList.isConnected && button.getAttribute("aria-expanded") === "true") {
+      placeList.style.maxHeight = "none";
+    }
+  }, 220);
 }
 
 function updateMapDots() {
