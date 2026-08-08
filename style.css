@@ -11,6 +11,7 @@
   --orange-soft: #f8d2b9;
   --gold: #e7b84d;
   --red: #b95043;
+  --blue: #2563a8;
   --shadow: 0 22px 60px rgba(35, 57, 49, .12);
   --radius: 24px;
 }
@@ -379,10 +380,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .quest-list { display: grid; gap: 12px; }
 .quest-item { position: relative; overflow: hidden; padding: 18px; border: 1px solid var(--line); border-radius: 17px; background: var(--card); }
 .quest-item.in-range { border-color: rgba(237,139,82,.65); box-shadow: inset 4px 0 0 var(--orange); }
-.quest-item.owned { background: #f0f5ef; }
+.quest-item.owned { background: #dbe8dd; }
 .quest-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .distance-badge { padding: 4px 8px; border-radius: 8px; color: var(--ink-soft); background: var(--paper); font-size: 10px; font-weight: 800; }
 .range-badge { color: var(--orange); font-size: 10px; font-weight: 800; }
+.range-badge.done { color: var(--blue); }
 .quest-item h3 { margin: 10px 0 4px; font-family: "Gowun Dodum", serif; font-size: 21px; font-weight: 400; }
 .quest-item p { margin: 0; color: var(--ink-soft); font-size: 12px; }
 .quest-item button { width: 100%; min-height: 42px; margin-top: 15px; padding: 9px 12px; cursor: pointer; border: 1px solid var(--ink); border-radius: 10px; color: #fff; background: var(--ink); font-size: 12px; font-weight: 800; }

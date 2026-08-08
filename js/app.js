@@ -1080,7 +1080,7 @@ function renderQuestList(items) {
     article.innerHTML = `
       <div class="quest-meta">
         <span class="distance-badge">${escapeHTML(formatDistance(item.distance))}</span>
-        <span class="range-badge">${item.inRange ? "● 도전 가능" : `${activationRadius}m 안에서 활성화`}</span>
+        <span class="range-badge${owned ? " done" : ""}">${item.inRange ? (owned ? "● 도전 완료" : "● 도전 가능") : `${activationRadius}m 안에서 활성화`}</span>
       </div>
       <h3>${escapeHTML(item.placeName)}</h3>
       <p>${escapeHTML(item.regionId)} · ${owned ? "스탬프 획득 완료" : "미획득 탐방지"}</p>
