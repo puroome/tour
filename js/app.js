@@ -56,6 +56,7 @@ const state = {
   mapPaths: new Map(),
   selectedMapRegion: null,
   mapAnimationFrame: null,
+  mapBaseViewBox: BASE_MAP_VIEWBOX.slice(),
   watchId: null,
   currentQuiz: null,
   activeView: "passport",
@@ -378,6 +379,7 @@ function buildMap() {
   const svg = $("korea-map");
   svg.innerHTML = "";
   svg.setAttribute("viewBox", BASE_MAP_VIEWBOX.join(" "));
+  state.mapBaseViewBox = BASE_MAP_VIEWBOX.slice();
   state.mapPaths.clear();
   for (const [name, muni] of Object.entries(MUNIS)) {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -427,6 +429,84 @@ function moveMapTooltip(event) {
 
 function hideMapTooltip() {
   $("map-tooltip").classList.add("hidden");
+}
+
+function currentMapViewBox() {
+  const svg = $("korea-map");
+  return (svg.getAttribute("viewBox") || BASE_MAP_VIEWBOX.join(" ")).split(/\s+/).map(Number);
+}
+
+// Keeps the pinched view from drifting far away from the region being inspected.
+function clampMapAxis(value, size, baseStart, baseSize) {
+  const slack = baseSize * .3;
+  const min = baseStart - slack;
+  const max = baseStart + baseSize + slack - size;
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+const MAX_MAP_ZOOM = 12;
+
+function setupMapPinchZoom() {
+  const stage = $("map-stage");
+  const svg = $("korea-map");
+  let pinch = null;
+
+  const toSvgPoint = (clientX, clientY) => {
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return null;
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    return point.matrixTransform(matrix.inverse());
+  };
+  const touchGap = (touches) => Math.hypot(
+    touches[0].clientX - touches[1].clientX,
+    touches[0].clientY - touches[1].clientY
+  );
+  const touchMid = (touches) => [
+    (touches[0].clientX + touches[1].clientX) / 2,
+    (touches[0].clientY + touches[1].clientY) / 2
+  ];
+
+  stage.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 2) return;
+    event.preventDefault();
+    if (state.mapAnimationFrame) {
+      cancelAnimationFrame(state.mapAnimationFrame);
+      state.mapAnimationFrame = null;
+    }
+    hideMapTooltip();
+    const [midX, midY] = touchMid(event.touches);
+    const anchor = toSvgPoint(midX, midY);
+    const gap = touchGap(event.touches);
+    if (!anchor || !gap) return;
+    pinch = { gap: gap, box: currentMapViewBox(), anchor: anchor };
+  }, { passive: false });
+
+  stage.addEventListener("touchmove", (event) => {
+    if (!pinch || event.touches.length !== 2) return;
+    event.preventDefault();
+    const gap = touchGap(event.touches);
+    if (!gap) return;
+    const base = state.mapBaseViewBox;
+    const width = Math.min(base[2], Math.max(base[2] / MAX_MAP_ZOOM, pinch.box[2] * pinch.gap / gap));
+    const height = width * pinch.box[3] / pinch.box[2];
+
+    // Size first, then shift the origin so the point under the fingers stays put.
+    svg.setAttribute("viewBox", `${pinch.box[0]} ${pinch.box[1]} ${width} ${height}`);
+    const [midX, midY] = touchMid(event.touches);
+    const under = toSvgPoint(midX, midY);
+    if (!under) return;
+    const x = clampMapAxis(pinch.box[0] + (pinch.anchor.x - under.x), width, base[0], base[2]);
+    const y = clampMapAxis(pinch.box[1] + (pinch.anchor.y - under.y), height, base[1], base[3]);
+    svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+  }, { passive: false });
+
+  const endPinch = (event) => {
+    if (pinch && event.touches.length < 2) pinch = null;
+  };
+  stage.addEventListener("touchend", endPinch);
+  stage.addEventListener("touchcancel", endPinch);
 }
 
 function animateMapViewBox(target) {
@@ -528,7 +608,9 @@ function zoomToMapRegion(name) {
   state.selectedMapRegion = name;
   const bbox = path.getBBox();
   const padding = Math.max(9, Math.max(bbox.width, bbox.height) * .24);
-  animateMapViewBox([bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2]);
+  const target = [bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2];
+  state.mapBaseViewBox = target.slice();
+  animateMapViewBox(target);
   $("map-title").textContent = name;
   $("map-back-button").classList.remove("hidden");
   updateMapState();
@@ -536,6 +618,7 @@ function zoomToMapRegion(name) {
 
 function resetMapZoom() {
   state.selectedMapRegion = null;
+  state.mapBaseViewBox = BASE_MAP_VIEWBOX.slice();
   animateMapViewBox(BASE_MAP_VIEWBOX);
   $("map-title").textContent = "정복 지도";
   $("map-back-button").classList.add("hidden");
@@ -1240,6 +1323,12 @@ function bindEvents() {
   });
   $("passport-stamp").addEventListener("click", () => navigateToView("map"));
   $("map-back-button").addEventListener("click", resetMapZoom);
+  setupMapPinchZoom();
+  // iOS Safari zooms the page on pinch even with user-scalable=no, so block its
+  // proprietary gesture events. Touch events still reach the map's own pinch handler.
+  ["gesturestart", "gesturechange", "gestureend"].forEach((type) => {
+    document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+  });
   $("refresh-button").addEventListener("click", async () => {
     await refreshQuizzes({ notify: true });
     await loadNearbyTourSpots({ force: true });

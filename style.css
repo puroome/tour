@@ -17,7 +17,9 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+/* pan-x pan-y allows scrolling but withholds pinch-zoom and double-tap zoom from the
+   browser, so the app chrome stays at a fixed scale. The map opts back in via JS. */
+html { scroll-behavior: smooth; touch-action: pan-x pan-y; }
 
 body {
   margin: 0;
@@ -350,7 +352,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .legend-nearby { background: var(--orange); }
 .count-badge { min-width: 28px; height: 28px; display: grid; place-items: center; padding: 0 9px; color: var(--mint-deep); border-radius: 20px; background: #dcece3; font-size: 12px; font-weight: 800; }
 
-.map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d8ded7; border-radius: 19px; background: #eaf0eb; }
+/* pan-y keeps one-finger page scrolling over the map; two-finger pinch is handled in JS. */
+.map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d8ded7; border-radius: 19px; background: #eaf0eb; touch-action: pan-y; }
 .map-stage::before { content: ""; position: absolute; inset: 0; opacity: .52; background-image: linear-gradient(rgba(47,122,96,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(47,122,96,.07) 1px, transparent 1px); background-size: 28px 28px; }
 #korea-map { position: relative; width: 100%; height: 100%; padding: 18px; filter: drop-shadow(0 10px 12px rgba(23,63,53,.12)); }
 #korea-map .muni { fill: #f9f6ec; stroke: #bacbc2; stroke-width: .72; vector-effect: non-scaling-stroke; transition: fill .25s, opacity .25s, filter .25s; }
@@ -755,15 +758,21 @@ body { background: #dfe5df; }
    neighbouring dots, so signal the selected dot with a shimmering gold rim instead. */
 #korea-map .quiz-dot:focus { outline: none; }
 #korea-map .quiz-dot.dot-active,
-#korea-map .quiz-dot:focus-visible { outline: none; stroke: #e6b422; stroke-width: 3.4; animation: dot-sparkle .72s ease-in-out infinite alternate; }
+#korea-map .quiz-dot:focus-visible { outline: none; stroke: #e6b422; stroke-width: 3.4; animation: dot-sparkle .42s ease-in-out infinite alternate; }
 @keyframes dot-sparkle {
   from { stroke: #c8901a; stroke-width: 2.8; filter: drop-shadow(0 0 1px rgba(200, 144, 26, .5)); }
   to { stroke: #fff2c0; stroke-width: 5.2; filter: drop-shadow(0 0 9px rgba(255, 208, 92, 1)) drop-shadow(0 0 17px rgba(255, 190, 40, .8)); }
 }
-/* The global reduced-motion rule stops the shimmer, so keep a strong static gold rim there. */
+/* The global reduced-motion rule would cut this to a single frame, but the blink is the
+   only thing marking the selected dot, so it keeps running. */
 @media (prefers-reduced-motion: reduce) {
   #korea-map .quiz-dot.dot-active,
-  #korea-map .quiz-dot:focus-visible { animation-name: none; stroke: #ffd45c; stroke-width: 4.8; filter: drop-shadow(0 0 8px rgba(255, 208, 92, .95)); }
+  #korea-map .quiz-dot:focus-visible {
+    animation-name: dot-sparkle !important;
+    animation-duration: .42s !important;
+    animation-iteration-count: infinite !important;
+    animation-direction: alternate !important;
+  }
 }
 
 .map-region-summary { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
