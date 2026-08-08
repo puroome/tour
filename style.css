@@ -352,8 +352,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .legend-nearby { background: var(--orange); }
 .count-badge { min-width: 28px; height: 28px; display: grid; place-items: center; padding: 0 9px; color: var(--mint-deep); border-radius: 20px; background: #dcece3; font-size: 12px; font-weight: 800; }
 
-/* pan-y keeps one-finger page scrolling over the map; two-finger pinch is handled in JS. */
-.map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d8ded7; border-radius: 19px; background: #eaf0eb; touch-action: pan-y; }
+/* The map owns every touch inside it. Anything looser (pan-y) lets the browser claim the
+   gesture on the first finger, after which touchmove is no longer cancelable and the
+   two-finger pinch never reaches the handler. Panning and zooming are done in JS. */
+.map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d8ded7; border-radius: 19px; background: #eaf0eb; touch-action: none; }
 .map-stage::before { content: ""; position: absolute; inset: 0; opacity: .52; background-image: linear-gradient(rgba(47,122,96,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(47,122,96,.07) 1px, transparent 1px); background-size: 28px 28px; }
 #korea-map { position: relative; width: 100%; height: 100%; padding: 18px; filter: drop-shadow(0 10px 12px rgba(23,63,53,.12)); }
 #korea-map .muni { fill: #f9f6ec; stroke: #bacbc2; stroke-width: .72; vector-effect: non-scaling-stroke; transition: fill .25s, opacity .25s, filter .25s; }

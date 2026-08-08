@@ -446,10 +446,14 @@ function clampMapAxis(value, size, baseStart, baseSize) {
 
 const MAX_MAP_ZOOM = 12;
 
-function setupMapPinchZoom() {
+const MAP_DRAG_THRESHOLD = 7;
+
+function setupMapGestures() {
   const stage = $("map-stage");
   const svg = $("korea-map");
-  let pinch = null;
+  let gesture = null;
+  let moved = false;
+  let suppressClick = false;
 
   const toSvgPoint = (clientX, clientY) => {
     const matrix = svg.getScreenCTM();
@@ -468,45 +472,92 @@ function setupMapPinchZoom() {
     (touches[0].clientY + touches[1].clientY) / 2
   ];
 
+  const beginGesture = (touches) => {
+    const box = currentMapViewBox();
+    if (touches.length >= 2) {
+      const [midX, midY] = touchMid(touches);
+      const anchor = toSvgPoint(midX, midY);
+      const gap = touchGap(touches);
+      if (!anchor || !gap) return null;
+      return { type: "pinch", box: box, anchor: anchor, gap: gap };
+    }
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return null;
+    return {
+      type: "pan",
+      box: box,
+      startX: touches[0].clientX,
+      startY: touches[0].clientY,
+      scaleX: matrix.a,
+      scaleY: matrix.d
+    };
+  };
+
   stage.addEventListener("touchstart", (event) => {
-    if (event.touches.length !== 2) return;
     event.preventDefault();
     if (state.mapAnimationFrame) {
       cancelAnimationFrame(state.mapAnimationFrame);
       state.mapAnimationFrame = null;
     }
-    hideMapTooltip();
-    const [midX, midY] = touchMid(event.touches);
-    const anchor = toSvgPoint(midX, midY);
-    const gap = touchGap(event.touches);
-    if (!anchor || !gap) return;
-    pinch = { gap: gap, box: currentMapViewBox(), anchor: anchor };
+    if (event.touches.length > 1) hideMapTooltip();
+    gesture = beginGesture(event.touches);
+    moved = false;
   }, { passive: false });
 
   stage.addEventListener("touchmove", (event) => {
-    if (!pinch || event.touches.length !== 2) return;
+    if (!gesture) return;
     event.preventDefault();
-    const gap = touchGap(event.touches);
-    if (!gap) return;
     const base = state.mapBaseViewBox;
-    const width = Math.min(base[2], Math.max(base[2] / MAX_MAP_ZOOM, pinch.box[2] * pinch.gap / gap));
-    const height = width * pinch.box[3] / pinch.box[2];
 
-    // Size first, then shift the origin so the point under the fingers stays put.
-    svg.setAttribute("viewBox", `${pinch.box[0]} ${pinch.box[1]} ${width} ${height}`);
-    const [midX, midY] = touchMid(event.touches);
-    const under = toSvgPoint(midX, midY);
-    if (!under) return;
-    const x = clampMapAxis(pinch.box[0] + (pinch.anchor.x - under.x), width, base[0], base[2]);
-    const y = clampMapAxis(pinch.box[1] + (pinch.anchor.y - under.y), height, base[1], base[3]);
-    svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+    if (gesture.type === "pinch" && event.touches.length >= 2) {
+      const gap = touchGap(event.touches);
+      if (!gap) return;
+      const width = Math.min(base[2], Math.max(base[2] / MAX_MAP_ZOOM, gesture.box[2] * gesture.gap / gap));
+      const height = width * gesture.box[3] / gesture.box[2];
+      // Size first, then shift the origin so the point under the fingers stays put.
+      svg.setAttribute("viewBox", `${gesture.box[0]} ${gesture.box[1]} ${width} ${height}`);
+      const [midX, midY] = touchMid(event.touches);
+      const under = toSvgPoint(midX, midY);
+      if (!under) return;
+      const x = clampMapAxis(gesture.box[0] + (gesture.anchor.x - under.x), width, base[0], base[2]);
+      const y = clampMapAxis(gesture.box[1] + (gesture.anchor.y - under.y), height, base[1], base[3]);
+      svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+      moved = true;
+      return;
+    }
+
+    if (gesture.type === "pan" && event.touches.length === 1) {
+      const dx = event.touches[0].clientX - gesture.startX;
+      const dy = event.touches[0].clientY - gesture.startY;
+      if (!moved && Math.hypot(dx, dy) < MAP_DRAG_THRESHOLD) return;
+      moved = true;
+      hideMapTooltip();
+      const x = clampMapAxis(gesture.box[0] - dx / gesture.scaleX, gesture.box[2], base[0], base[2]);
+      const y = clampMapAxis(gesture.box[1] - dy / gesture.scaleY, gesture.box[3], base[1], base[3]);
+      svg.setAttribute("viewBox", `${x} ${y} ${gesture.box[2]} ${gesture.box[3]}`);
+    }
   }, { passive: false });
 
-  const endPinch = (event) => {
-    if (pinch && event.touches.length < 2) pinch = null;
+  const endGesture = (event) => {
+    if (moved) suppressClick = true;
+    if (event.touches.length) {
+      // Lifting one finger of a pinch continues as a pan instead of jumping.
+      gesture = beginGesture(event.touches);
+      return;
+    }
+    gesture = null;
+    moved = false;
   };
-  stage.addEventListener("touchend", endPinch);
-  stage.addEventListener("touchcancel", endPinch);
+  stage.addEventListener("touchend", endGesture);
+  stage.addEventListener("touchcancel", endGesture);
+
+  // A drag must not also count as a tap on a region or a quiz dot.
+  stage.addEventListener("click", (event) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
 }
 
 function animateMapViewBox(target) {
@@ -1323,12 +1374,20 @@ function bindEvents() {
   });
   $("passport-stamp").addEventListener("click", () => navigateToView("map"));
   $("map-back-button").addEventListener("click", resetMapZoom);
-  setupMapPinchZoom();
+  setupMapGestures();
   // iOS Safari zooms the page on pinch even with user-scalable=no, so block its
   // proprietary gesture events. Touch events still reach the map's own pinch handler.
   ["gesturestart", "gesturechange", "gestureend"].forEach((type) => {
     document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
   });
+  // Last line of defence for browsers that ignore user-scalable=no: refuse multi-touch
+  // moves everywhere except the map, which runs its own zoom.
+  document.addEventListener("touchmove", (event) => {
+    if (event.touches.length < 2) return;
+    const target = event.target;
+    if (target && typeof target.closest === "function" && target.closest("#map-stage")) return;
+    event.preventDefault();
+  }, { passive: false });
   $("refresh-button").addEventListener("click", async () => {
     await refreshQuizzes({ notify: true });
     await loadNearbyTourSpots({ force: true });
