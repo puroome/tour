@@ -494,22 +494,30 @@ function setupMapGestures() {
   };
 
   stage.addEventListener("touchstart", (event) => {
-    event.preventDefault();
     if (state.mapAnimationFrame) {
       cancelAnimationFrame(state.mapAnimationFrame);
       state.mapAnimationFrame = null;
     }
-    if (event.touches.length > 1) hideMapTooltip();
     gesture = beginGesture(event.touches);
     moved = false;
+    // A drag fires no click, so its suppression flag would otherwise survive and swallow
+    // the next genuine tap.
+    suppressClick = false;
+    // Never cancel a single touch: that also cancels the click the browser synthesises
+    // for a tap, which is what selects a region or a quiz dot. touch-action: none
+    // already stops the page from scrolling, so there is nothing else to suppress.
+    if (event.touches.length > 1) {
+      event.preventDefault();
+      hideMapTooltip();
+    }
   }, { passive: false });
 
   stage.addEventListener("touchmove", (event) => {
     if (!gesture) return;
-    event.preventDefault();
     const base = state.mapBaseViewBox;
 
     if (gesture.type === "pinch" && event.touches.length >= 2) {
+      event.preventDefault();
       const gap = touchGap(event.touches);
       if (!gap) return;
       const width = Math.min(base[2], Math.max(base[2] / MAX_MAP_ZOOM, gesture.box[2] * gesture.gap / gap));
@@ -529,7 +537,10 @@ function setupMapGestures() {
     if (gesture.type === "pan" && event.touches.length === 1) {
       const dx = event.touches[0].clientX - gesture.startX;
       const dy = event.touches[0].clientY - gesture.startY;
+      // Below the threshold this is still a tap, so leave the event alone: cancelling it
+      // would cancel the click too.
       if (!moved && Math.hypot(dx, dy) < MAP_DRAG_THRESHOLD) return;
+      event.preventDefault();
       moved = true;
       hideMapTooltip();
       const x = clampMapAxis(gesture.box[0] - dx / gesture.scaleX, gesture.box[2], base[0], base[2]);
