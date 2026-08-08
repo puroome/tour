@@ -653,7 +653,7 @@ function renderMapRegionSummary() {
       const themeCompletion = themeMissions.length ? themeCompleted / themeMissions.length * 100 : 0;
       return `<section class="map-theme-group">
         <button type="button" class="map-theme-toggle" aria-expanded="false" style="--theme-completion:${themeCompletion}%"><span>${escapeHTML(theme)}</span><small>${themeCompleted}/${themeMissions.length}</small></button>
-        <div class="map-theme-place-list" hidden>${themeMissions.map((mission) => {
+        <div class="map-theme-place-list">${themeMissions.map((mission) => {
           const owned = isMissionOwned(mission);
           const distance = state.position ? formatDistance(mission.displayDistance) : "위치 미확인";
           const missionIndex = sortedMissions.indexOf(mission);
@@ -664,20 +664,23 @@ function renderMapRegionSummary() {
       </section>`;
     }).join("");
   $("map-place-list").querySelectorAll(".map-theme-toggle").forEach((button) => {
-    button.addEventListener("click", () => {
-      const group = button.closest(".map-theme-group");
-      const placeList = group?.querySelector(".map-theme-place-list");
-      if (!group || !placeList) return;
-      const expanded = button.getAttribute("aria-expanded") === "true";
-      button.setAttribute("aria-expanded", String(!expanded));
-      group.classList.toggle("expanded", !expanded);
-      placeList.hidden = expanded;
-    });
+    const placeList = button.closest(".map-theme-group")?.querySelector(".map-theme-place-list");
+    button.onclick = () => toggleMapThemePanel(button, placeList);
   });
   $("map-place-list").querySelectorAll(".map-place-name").forEach((button) => {
     button.addEventListener("click", () => showPlaceDescription(sortedMissions[Number(button.dataset.missionIndex)]));
   });
   section.classList.remove("hidden");
+}
+
+function toggleMapThemePanel(button, placeList) {
+  if (!placeList) return;
+  const expanded = Boolean(placeList.style.maxHeight);
+  const group = button.closest(".map-theme-group");
+  button.classList.toggle("active", !expanded);
+  button.setAttribute("aria-expanded", String(!expanded));
+  group?.classList.toggle("expanded", !expanded);
+  placeList.style.maxHeight = expanded ? null : `${placeList.scrollHeight}px`;
 }
 
 function updateMapDots() {
