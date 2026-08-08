@@ -1,0 +1,1280 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut
+} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+import {
+  doc,
+  getDoc,
+  getFirestore,
+  serverTimestamp,
+  setDoc
+} from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+import { APP_CONFIG } from "./config.js";
+import {
+  distanceMeters,
+  findRegionByCoordinates,
+  formatDistance,
+  normalizeQuizRows,
+  projectCoordinatesToMap,
+  rankNearbyQuizzes,
+  safeOwnedRegions,
+  uniqueRegions
+} from "./core.js";
+
+const $ = (id) => document.getElementById(id);
+const mapData = window.KOREA_MAP_DATA || {};
+const MUNIS = mapData.MUNIS || {};
+const PROVINCES = mapData.PROVINCES || {};
+const search = new URLSearchParams(location.search);
+const IS_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
+const PREVIEW_MODE = IS_LOCAL && search.get("preview") === "1";
+const BASE_MAP_VIEWBOX = [-8, -8, 776, 822];
+
+const screens = {
+  loading: $("loading-screen"),
+  login: $("login-screen"),
+  request: $("permission-request-screen"),
+  denied: $("denied-screen"),
+  app: $("app-shell")
+};
+
+const state = {
+  user: null,
+  canEdit: false,
+  quizzes: [],
+  position: null,
+  ranked: [],
+  owned: new Set(),
+  acquired: {},
+  ownedMissions: new Set(),
+  acquiredMissions: {},
+  legacyOwnedRegions: new Set(),
+  mapPaths: new Map(),
+  selectedMapRegion: null,
+  mapAnimationFrame: null,
+  watchId: null,
+  currentQuiz: null,
+  activeView: "passport",
+  visibleMissions: [],
+  tourSpots: [],
+  tourOrigin: null,
+  tourFetchedAt: 0,
+  tourLoading: false,
+  currentAddress: "",
+  addressOrigin: null,
+  addressFetchedAt: 0,
+  addressFailedAt: 0,
+  addressLoading: false,
+  toastTimer: null,
+  preview: PREVIEW_MODE
+};
+
+const firebaseApp = initializeApp(APP_CONFIG.firebase);
+const auth = getAuth(firebaseApp);
+const firestore = getFirestore(firebaseApp);
+
+const PREVIEW_QUIZZES = [
+  {
+    id: "preview-seoul",
+    regionId: "서울특별시",
+    placeName: "서울광장",
+    latitude: 37.5663,
+    longitude: 126.9779,
+    radius: 150,
+    question: "서울을 가로질러 서해로 흐르는 강은 무엇일까요?",
+    choices: ["한강", "낙동강", "금강", "영산강"],
+    answerIndex: 0,
+    explanation: "한강은 서울의 중심부를 동서로 가로질러 흐릅니다.",
+    active: true
+  },
+  {
+    id: "preview-seoul-museum",
+    regionId: "서울특별시",
+    placeName: "국립중앙박물관",
+    latitude: 37.5239,
+    longitude: 126.9803,
+    radius: 150,
+    question: "국립중앙박물관이 소장·전시하는 자료와 가장 관련 깊은 분야는?",
+    choices: ["한국의 역사와 문화", "해양 기상", "우주 발사체", "현대 자동차"],
+    answerIndex: 0,
+    explanation: "국립중앙박물관은 우리 역사와 문화유산을 보존하고 전시합니다.",
+    active: true
+  },
+  {
+    id: "preview-busan",
+    regionId: "부산광역시",
+    placeName: "부산시청",
+    latitude: 35.1798,
+    longitude: 129.0750,
+    radius: 150,
+    question: "부산의 대표적인 우리나라 최대 무역항은?",
+    choices: ["인천항", "부산항", "군산항", "목포항"],
+    answerIndex: 1,
+    explanation: "부산항은 우리나라 최대 규모의 컨테이너 무역항입니다.",
+    active: true
+  },
+  {
+    id: "preview-jeju",
+    regionId: "제주시",
+    placeName: "제주시청",
+    latitude: 33.4996,
+    longitude: 126.5312,
+    radius: 150,
+    question: "제주도의 중앙에 있는 우리나라 최고봉은?",
+    choices: ["지리산", "설악산", "한라산", "태백산"],
+    answerIndex: 2,
+    explanation: "한라산은 해발 1,947m로 대한민국에서 가장 높은 산입니다.",
+    active: true
+  }
+];
+
+const PREVIEW_TOUR_SPOTS = [
+  { contentId: "preview-1", title: "덕수궁", address: "서울 중구 세종대로 99", distance: 210, image: "" },
+  { contentId: "preview-2", title: "서울역사박물관", address: "서울 종로구 새문안로 55", distance: 940, image: "" },
+  { contentId: "preview-3", title: "청계천", address: "서울 종로구 서린동", distance: 1100, image: "" }
+];
+
+function showScreen(name) {
+  Object.entries(screens).forEach(([key, element]) => element.classList.toggle("hidden", key !== name));
+}
+
+const VIEW_IDS = new Set(["passport", "quests", "map"]);
+
+function switchView(view) {
+  const nextView = VIEW_IDS.has(view) ? view : "passport";
+  state.activeView = nextView;
+  document.querySelectorAll(".app-view").forEach((element) => {
+    const active = element.id === nextView;
+    element.classList.toggle("active", active);
+    element.setAttribute("aria-hidden", active ? "false" : "true");
+    if (active) element.scrollTop = 0;
+  });
+  document.querySelectorAll(".bottom-nav [data-view]").forEach((link) => {
+    const active = link.dataset.view === nextView;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+}
+
+function navigateToView(view) {
+  const nextView = VIEW_IDS.has(view) ? view : "passport";
+  if (location.hash !== `#${nextView}`) history.pushState({ view: nextView }, "", `#${nextView}`);
+  switchView(nextView);
+}
+
+function setLoading(message) {
+  $("loading-message").textContent = message;
+  showScreen("loading");
+}
+
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function showToast(message) {
+  const toast = $("toast");
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => toast.classList.add("hidden"), 2800);
+}
+
+function updateNetworkStatus() {
+  const offline = !navigator.onLine;
+  $("offline-banner").classList.toggle("hidden", !offline);
+  document.body.classList.toggle("is-offline", offline);
+}
+
+function normalizeRegionToken(name) {
+  return String(name || "")
+    .trim()
+    .replaceAll(" ", "")
+    .replace(/특별자치도$|특별자치시$|광역시$|특별시$|자치시$|시$|군$/u, "");
+}
+
+function regionFromAddress(address) {
+  const parts = String(address || "").trim().split(/\s+/).filter(Boolean);
+  const province = parts[0] || "";
+  if (MUNIS[province]) return province;
+  if (province === "강원특별자치도" && parts[1] === "고성군") return "고성군(강원)";
+  if (province === "경상남도" && parts[1] === "고성군") return "고성군(경남)";
+  return MUNIS[parts[1]] ? parts[1] : "";
+}
+
+function resolveRegionId(regionId, quiz) {
+  const addressRegion = regionFromAddress(quiz?.address);
+  if (addressRegion) return addressRegion;
+  const coordinateRegion = findRegionByCoordinates(MUNIS, quiz);
+  if (coordinateRegion) return coordinateRegion;
+  if (MUNIS[regionId]) return regionId;
+  const token = normalizeRegionToken(regionId);
+  const matches = Object.keys(MUNIS).filter((name) => normalizeRegionToken(name) === token);
+  if (matches.length === 1) return matches[0];
+  return regionId;
+}
+
+function resolveQuizRegions(quizzes) {
+  return quizzes.map((quiz) => ({ ...quiz, regionId: resolveRegionId(quiz.regionId, quiz) }));
+}
+
+async function loadSheetQuizzes() {
+  if (state.preview) return Promise.resolve(PREVIEW_QUIZZES);
+  const response = await loadAppsScriptAction("getQuizzes", { t: Date.now() }, "퀴즈 데이터");
+  if (!response?.success) throw new Error(response?.message || "퀴즈 시트를 읽지 못했습니다.");
+  return resolveQuizRegions(normalizeQuizRows(response));
+}
+
+async function refreshQuizzes({ notify = false } = {}) {
+  if (notify) $("refresh-button").disabled = true;
+  try {
+    state.quizzes = await loadSheetQuizzes();
+    updateMapState();
+    updateProgressUI();
+    if (state.position) updateNearby();
+    else renderQuestList([]);
+
+    const invalidCount = state.quizzes.filter((quiz) => !MUNIS[quiz.regionId]).length;
+    if (notify) {
+      if (!state.quizzes.length) showToast("시트에 활성 퀴즈가 아직 없습니다.");
+      else if (invalidCount) showToast(`퀴즈 ${state.quizzes.length}개 로드 · 지도 ID ${invalidCount}개 확인 필요`);
+      else showToast(`퀴즈 ${state.quizzes.length}개를 새로 불러왔습니다.`);
+    }
+  } catch (error) {
+    console.error("Quiz sheet load failed", error);
+    state.quizzes = [];
+    renderQuestError(error.message);
+    if (notify) showToast("퀴즈 시트를 불러오지 못했습니다.");
+  } finally {
+    $("refresh-button").disabled = false;
+  }
+}
+
+function loadAppsScriptAction(action, parameters = {}, label = "학생 명단") {
+  const proxyUrl = String(APP_CONFIG.tourApiProxyUrl || "").trim();
+  if (!proxyUrl) return Promise.reject(new Error("Apps Script 주소가 설정되지 않았습니다."));
+  const url = new URL(proxyUrl);
+  url.searchParams.set("action", action);
+  Object.entries(parameters).forEach(([key, value]) => url.searchParams.set(key, String(value ?? "")));
+  return loadAppsScriptProxy(url, label);
+}
+
+async function checkPermission(user) {
+  if (state.preview) {
+    return { status: "approved", approved: true, canEdit: true, displayName: "미리보기 학생", studentId: "00000" };
+  }
+  const email = String(user.email || "").trim().toLowerCase();
+  const rosterSnapshot = await getDoc(doc(firestore, "roster", email));
+  if (rosterSnapshot.exists()) {
+    const roster = rosterSnapshot.data();
+    return {
+      status: roster.permissions,
+      approved: roster.permissions === "approved",
+      canEdit: roster.permissions === "approved" && roster.canEdit === true,
+      displayName: roster.name || user.displayName || user.email?.split("@")[0],
+      studentId: String(roster.studentId || "")
+    };
+  }
+
+  const result = await loadAppsScriptAction("checkStudentPermission", { email: user.email || "" });
+  if (!result?.success) throw new Error(result?.message || "학생 권한을 확인하지 못했습니다.");
+  const status = result.status === "approved" ? "awaiting_sync" : (result.status || "not_found");
+  return {
+    status,
+    approved: false,
+    canEdit: false,
+    displayName: user.displayName || user.email?.split("@")[0],
+    studentId: ""
+  };
+}
+
+function storageKey() {
+  return `geoQuestProgress:${state.user?.uid || "preview"}`;
+}
+
+function loadLocalProgress() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey()) || "{}");
+    return {
+      ownedRegions: safeOwnedRegions(saved.ownedRegions),
+      acquired: saved.acquired && typeof saved.acquired === "object" ? saved.acquired : {},
+      ownedMissions: safeOwnedRegions(saved.ownedMissions),
+      acquiredMissions: saved.acquiredMissions && typeof saved.acquiredMissions === "object" ? saved.acquiredMissions : {},
+      hasMissionProgress: Array.isArray(saved.ownedMissions)
+    };
+  } catch {
+    return { ownedRegions: [], acquired: {}, ownedMissions: [], acquiredMissions: {}, hasMissionProgress: false };
+  }
+}
+
+function saveLocalProgress() {
+  try {
+    localStorage.setItem(storageKey(), JSON.stringify({
+      ownedRegions: [...state.owned],
+      acquired: state.acquired,
+      ownedMissions: [...state.ownedMissions],
+      acquiredMissions: state.acquiredMissions
+    }));
+  } catch (error) {
+    console.warn("Local progress save failed", error);
+  }
+}
+
+function progressDocument() {
+  return doc(firestore, "users", state.user.uid, "apps", "geoQuest");
+}
+
+async function loadProgress() {
+  const local = loadLocalProgress();
+  state.legacyOwnedRegions = new Set(local.hasMissionProgress ? [] : local.ownedRegions);
+  state.acquired = local.acquired;
+  state.ownedMissions = new Set(local.ownedMissions);
+  state.acquiredMissions = local.acquiredMissions;
+  if (!state.preview) {
+    try {
+      const snapshot = await getDoc(progressDocument());
+      if (snapshot.exists()) {
+        const remote = snapshot.data();
+        if (!Array.isArray(remote.ownedMissions)) {
+          safeOwnedRegions(remote.ownedRegions).forEach((region) => state.legacyOwnedRegions.add(region));
+        }
+        safeOwnedRegions(remote.ownedMissions).forEach((mission) => state.ownedMissions.add(mission));
+        state.acquired = { ...(remote.acquired || {}), ...state.acquired };
+        state.acquiredMissions = { ...(remote.acquiredMissions || {}), ...state.acquiredMissions };
+      }
+    } catch (error) {
+      console.warn("Cloud progress load failed; using local copy", error);
+    }
+  }
+}
+
+async function saveProgress() {
+  saveLocalProgress();
+  if (state.preview) return;
+  try {
+    await setDoc(progressDocument(), {
+      ownedRegions: [...state.owned],
+      acquired: state.acquired,
+      ownedMissions: [...state.ownedMissions],
+      acquiredMissions: state.acquiredMissions,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.warn("Cloud progress save failed; local copy retained", error);
+    showToast("기기에 저장했습니다. 클라우드 동기화는 다음에 다시 시도합니다.");
+  }
+}
+
+function buildMap() {
+  const svg = $("korea-map");
+  svg.innerHTML = "";
+  svg.setAttribute("viewBox", BASE_MAP_VIEWBOX.join(" "));
+  state.mapPaths.clear();
+  for (const [name, muni] of Object.entries(MUNIS)) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", muni.d);
+    path.setAttribute("class", "muni");
+    path.dataset.name = name;
+    path.addEventListener("pointerenter", showMapTooltip);
+    path.addEventListener("pointermove", moveMapTooltip);
+    path.addEventListener("pointerleave", hideMapTooltip);
+    path.addEventListener("click", () => zoomToMapRegion(name));
+    path.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        zoomToMapRegion(name);
+      }
+    });
+    svg.appendChild(path);
+    state.mapPaths.set(name, path);
+  }
+  for (const province of Object.values(PROVINCES)) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", province.d);
+    path.setAttribute("class", "prov-border");
+    svg.appendChild(path);
+  }
+  const dotLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  dotLayer.id = "map-quiz-dots";
+  svg.appendChild(dotLayer);
+  updateMapState();
+}
+
+function showMapTooltip(event) {
+  const name = event.currentTarget.dataset.name;
+  const tooltip = $("map-tooltip");
+  const missionCount = missionsForRegion(name).length;
+  const owned = state.owned.has(name);
+  tooltip.textContent = `${name} · ${owned ? "지역 완료" : missionCount ? `탐방지 ${missionCount}곳` : "미등록"}`;
+  tooltip.classList.remove("hidden");
+  moveMapTooltip(event);
+}
+
+function moveMapTooltip(event) {
+  const tooltip = $("map-tooltip");
+  tooltip.style.left = `${event.clientX + 13}px`;
+  tooltip.style.top = `${event.clientY + 13}px`;
+}
+
+function hideMapTooltip() {
+  $("map-tooltip").classList.add("hidden");
+}
+
+function animateMapViewBox(target) {
+  const svg = $("korea-map");
+  const current = (svg.getAttribute("viewBox") || BASE_MAP_VIEWBOX.join(" ")).split(/\s+/).map(Number);
+  if (state.mapAnimationFrame) cancelAnimationFrame(state.mapAnimationFrame);
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    svg.setAttribute("viewBox", target.join(" "));
+    return;
+  }
+  const startedAt = performance.now();
+  const duration = 520;
+  const tick = (now) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - (1 - progress) ** 3;
+    const frame = current.map((value, index) => value + (target[index] - value) * eased);
+    svg.setAttribute("viewBox", frame.join(" "));
+    if (progress < 1) state.mapAnimationFrame = requestAnimationFrame(tick);
+    else state.mapAnimationFrame = null;
+  };
+  state.mapAnimationFrame = requestAnimationFrame(tick);
+}
+
+function renderMapRegionSummary() {
+  const section = $("map-region-summary");
+  const regionId = state.selectedMapRegion;
+  if (!regionId) {
+    section.classList.add("hidden");
+    return;
+  }
+  const missions = missionsForRegion(regionId);
+  const completed = missions.filter(isMissionOwned).length;
+  $("map-region-progress-title").textContent = `${regionId} 탐방 기록`;
+  $("map-region-progress-count").textContent = `${completed}/${missions.length}`;
+  $("map-place-list").innerHTML = missions.map((mission) => {
+    const owned = isMissionOwned(mission);
+    const distance = state.position ? formatDistance(distanceMeters(state.position, mission)) : "위치 미확인";
+    return `<div class="map-place-item${owned ? " completed" : ""}">
+      <i aria-hidden="true"></i><strong>${escapeHTML(mission.placeName)}</strong><small>${owned ? "스탬프 획득" : escapeHTML(distance)}</small>
+    </div>`;
+  }).join("");
+  section.classList.remove("hidden");
+}
+
+function updateMapDots() {
+  const layer = $("map-quiz-dots");
+  if (!layer) return;
+  layer.innerHTML = "";
+  const regionId = state.selectedMapRegion;
+  const path = state.mapPaths.get(regionId);
+  const missions = missionsForRegion(regionId);
+  if (!path || !missions.length) return;
+
+  const bbox = path.getBBox();
+  const radius = Math.max(1.4, Math.min(3.25, Math.max(bbox.width, bbox.height) * .0175));
+
+  missions.forEach((mission) => {
+    const position = projectCoordinatesToMap(mission);
+    if (!position) return;
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", String(position.x));
+    circle.setAttribute("cy", String(position.y));
+    circle.setAttribute("r", String(radius));
+    circle.setAttribute("class", `quiz-dot${isMissionOwned(mission) ? " completed" : ""}`);
+    circle.setAttribute("tabindex", "0");
+    circle.setAttribute("role", "button");
+    circle.setAttribute("aria-label", `${mission.placeName}, ${isMissionOwned(mission) ? "스탬프 획득" : "미획득"}`);
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = `${mission.placeName} · ${isMissionOwned(mission) ? "스탬프 획득" : "미획득"}`;
+    circle.appendChild(title);
+    const activateDot = () => {
+      layer.querySelectorAll(".dot-active").forEach((dot) => dot.classList.remove("dot-active"));
+      circle.classList.add("dot-active");
+      // SVG paints in document order, so re-appending lifts the dot above overlapping ones
+      layer.appendChild(circle);
+      showToast(title.textContent);
+    };
+    circle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      activateDot();
+    });
+    circle.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activateDot();
+      }
+    });
+    layer.appendChild(circle);
+  });
+}
+
+function zoomToMapRegion(name) {
+  const path = state.mapPaths.get(name);
+  const missions = missionsForRegion(name);
+  if (!path || !missions.length) {
+    showToast("이 지역에는 등록된 퀴즈가 아직 없습니다.");
+    return;
+  }
+  state.selectedMapRegion = name;
+  const bbox = path.getBBox();
+  const padding = Math.max(9, Math.max(bbox.width, bbox.height) * .24);
+  animateMapViewBox([bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2]);
+  $("map-title").textContent = name;
+  $("map-back-button").classList.remove("hidden");
+  updateMapState();
+}
+
+function resetMapZoom() {
+  state.selectedMapRegion = null;
+  animateMapViewBox(BASE_MAP_VIEWBOX);
+  $("map-title").textContent = "정복 지도";
+  $("map-back-button").classList.add("hidden");
+  updateMapState();
+}
+
+function updateMapState() {
+  syncDerivedOwnership();
+  const registered = new Set(uniqueRegions(state.quizzes));
+  const nearby = new Set(state.ranked.filter((quiz) => quiz.inRange).map((quiz) => quiz.regionId));
+  state.mapPaths.forEach((path, name) => {
+    path.classList.toggle("registered", registered.has(name));
+    path.classList.toggle("owned", state.owned.has(name));
+    path.classList.toggle("nearby", nearby.has(name));
+    path.classList.toggle("map-selected", state.selectedMapRegion === name);
+    if (registered.has(name)) {
+      path.setAttribute("tabindex", "0");
+      path.setAttribute("role", "button");
+      path.setAttribute("aria-label", `${name} 상세 지도 열기`);
+    } else {
+      path.removeAttribute("tabindex");
+      path.removeAttribute("role");
+      path.removeAttribute("aria-label");
+    }
+  });
+  updateMapDots();
+  renderMapRegionSummary();
+}
+
+function updateProgressUI() {
+  syncDerivedOwnership();
+  const missions = quizMissions();
+  const ownedCount = missions.filter(isMissionOwned).length;
+  const rate = missions.length ? Math.round(ownedCount / missions.length * 100) : 0;
+  $("owned-count").textContent = String(ownedCount);
+  $("registered-count").textContent = String(missions.length);
+  $("completion-rate").textContent = `${rate}%`;
+  $("completion-bar").style.width = `${rate}%`;
+}
+
+function setLocationStatus(kind, title, detail) {
+  const box = $("location-status");
+  box.classList.toggle("active", kind === "active");
+  box.classList.toggle("error", kind === "error");
+  $("location-status-title").textContent = title;
+  $("location-status-detail").textContent = detail;
+}
+
+function positionFromGeolocation(position) {
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+    timestamp: position.timestamp
+  };
+}
+
+async function loadCurrentAddress() {
+  if (!state.position || state.addressLoading) return;
+  if (state.preview) {
+    const nearest = [...PREVIEW_QUIZZES].sort((a, b) => (
+      distanceMeters(state.position, a) - distanceMeters(state.position, b)
+    ))[0];
+    state.currentAddress = `${nearest.regionId} ${nearest.placeName} 부근`;
+    state.addressOrigin = { latitude: state.position.latitude, longitude: state.position.longitude };
+    updateQuestHeadingAddress();
+    setLocationStatus("active", "현재 위치", `${state.currentAddress} · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
+    return;
+  }
+  const proxyUrl = String(APP_CONFIG.tourApiProxyUrl || "").trim();
+  if (!proxyUrl) return;
+  if (state.addressFailedAt && Date.now() - state.addressFailedAt < 60000) return;
+  const moved = state.addressOrigin ? distanceMeters(state.position, state.addressOrigin) : Number.POSITIVE_INFINITY;
+  if (state.currentAddress && Date.now() - state.addressFetchedAt < 600000 && moved < 500) return;
+
+  state.addressLoading = true;
+  const requestOrigin = { latitude: state.position.latitude, longitude: state.position.longitude };
+  try {
+    const url = new URL(proxyUrl);
+    url.searchParams.set("action", "reverseAddress");
+    url.searchParams.set("lat", String(requestOrigin.latitude));
+    url.searchParams.set("lng", String(requestOrigin.longitude));
+    const data = await loadTourProxy(url);
+    if (!data.success || !data.address) throw new Error(data.message || "Address response error");
+    state.currentAddress = String(data.address);
+    state.addressOrigin = requestOrigin;
+    state.addressFetchedAt = Date.now();
+    state.addressFailedAt = 0;
+    updateQuestHeadingAddress();
+    if (state.position && distanceMeters(state.position, requestOrigin) < 500) {
+      setLocationStatus("active", "현재 위치", `${state.currentAddress} · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
+    }
+  } catch (error) {
+    console.warn("Reverse geocoding failed", error);
+    state.addressFailedAt = Date.now();
+    if (state.position && distanceMeters(state.position, requestOrigin) < 500) {
+      setLocationStatus("active", "위치 확인 완료", `주소를 가져오지 못했어요 · 정확도 약 ±${Math.round(state.position.accuracy || 0)}m`);
+    }
+  } finally {
+    state.addressLoading = false;
+  }
+}
+
+function handleLocation(position) {
+  const isFirstFix = !state.position;
+  state.position = positionFromGeolocation(position);
+  const accuracy = Math.round(state.position.accuracy || 0);
+  const addressDistance = state.addressOrigin ? distanceMeters(state.position, state.addressOrigin) : Number.POSITIVE_INFINITY;
+  if (state.currentAddress && addressDistance < 500) {
+    setLocationStatus("active", "현재 위치", `${state.currentAddress} · 정확도 약 ±${accuracy}m`);
+  } else {
+    setLocationStatus("active", "위치 확인 완료", `주소 확인 중 · 정확도 약 ±${accuracy}m`);
+  }
+  $("location-button").innerHTML = "<span>●</span> 현재 위치 새로고침";
+  $("location-button").setAttribute("aria-busy", "false");
+  updateNearby();
+  loadCurrentAddress();
+  loadNearbyTourSpots();
+  if (isFirstFix && state.activeView === "passport") navigateToView("quests");
+}
+
+function handleLocationError(error) {
+  const messages = {
+    1: ["위치 권한이 꺼져 있어요", "브라우저 설정에서 이 사이트의 위치 권한을 허용해 주세요."],
+    2: ["현재 위치를 찾지 못했어요", "야외나 창가에서 잠시 후 다시 시도해 주세요."],
+    3: ["위치 확인 시간이 초과됐어요", "네트워크와 GPS를 확인한 뒤 다시 눌러 주세요."]
+  };
+  const [title, detail] = messages[error?.code] || ["위치 확인에 실패했어요", "잠시 후 다시 시도해 주세요."];
+  setLocationStatus("error", title, detail);
+  $("location-button").innerHTML = "<span>⌖</span> 위치 다시 확인하기";
+  $("location-button").setAttribute("aria-busy", "false");
+}
+
+function startLocationWatch() {
+  if (state.preview) {
+    const selected = PREVIEW_QUIZZES.find((quiz) => quiz.id === search.get("place"))
+      || PREVIEW_QUIZZES.find((quiz) => quiz.regionId === search.get("region"))
+      || PREVIEW_QUIZZES[0];
+    handleLocation({
+      coords: { latitude: selected.latitude, longitude: selected.longitude, accuracy: 12 },
+      timestamp: Date.now()
+    });
+    showToast("로컬 미리보기 위치를 사용합니다.");
+    return;
+  }
+  if (!navigator.geolocation) {
+    handleLocationError({ code: 2 });
+    return;
+  }
+  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+  setLocationStatus("", "위치를 찾는 중...", "GPS 확인 중");
+  $("location-button").disabled = true;
+  $("location-button").setAttribute("aria-busy", "true");
+  $("location-button").innerHTML = "<span>⌖</span> 위치 찾는 중...";
+  state.watchId = navigator.geolocation.watchPosition(
+    (position) => {
+      $("location-button").disabled = false;
+      handleLocation(position);
+    },
+    (error) => {
+      $("location-button").disabled = false;
+      handleLocationError(error);
+    },
+    APP_CONFIG.locationWatchOptions
+  );
+}
+
+function missionKey(quiz) {
+  return [
+    quiz.placeName,
+    Number(quiz.latitude).toFixed(5),
+    Number(quiz.longitude).toFixed(5)
+  ].join("|");
+}
+
+function quizMissions(quizzes = state.quizzes) {
+  const missions = new Map();
+  quizzes.forEach((quiz) => {
+    const key = missionKey(quiz);
+    if (!missions.has(key)) missions.set(key, quiz);
+  });
+  return [...missions.values()];
+}
+
+function missionsForRegion(regionId) {
+  return quizMissions().filter((mission) => mission.regionId === regionId);
+}
+
+function isMissionOwned(quiz) {
+  return state.ownedMissions.has(missionKey(quiz));
+}
+
+function syncDerivedOwnership() {
+  const cleared = new Set();
+  uniqueRegions(state.quizzes).forEach((regionId) => {
+    const missions = missionsForRegion(regionId);
+    if (missions.length && missions.every(isMissionOwned)) cleared.add(regionId);
+  });
+  state.owned = cleared;
+}
+
+function migrateLegacyProgress() {
+  const migrated = state.legacyOwnedRegions.size > 0;
+  state.legacyOwnedRegions.forEach((regionId) => {
+    missionsForRegion(regionId).forEach((mission) => {
+      const key = missionKey(mission);
+      state.ownedMissions.add(key);
+      if (!state.acquiredMissions[key]) {
+        state.acquiredMissions[key] = {
+          quizId: mission.id,
+          regionId,
+          placeName: mission.placeName,
+          acquiredAt: state.acquired[regionId]?.acquiredAt || new Date().toISOString(),
+          migrated: true
+        };
+      }
+    });
+  });
+  state.legacyOwnedRegions.clear();
+  syncDerivedOwnership();
+  saveLocalProgress();
+  return migrated;
+}
+
+function groupQuizMissions(ranked) {
+  const missions = new Map();
+  ranked.forEach((quiz) => {
+    const key = missionKey(quiz);
+    const current = missions.get(key);
+    if (!current || (!current.inRange && quiz.inRange) || quiz.distance < current.distance) missions.set(key, quiz);
+  });
+  return [...missions.values()].sort((a, b) => {
+    if (a.inRange !== b.inRange) return a.inRange ? -1 : 1;
+    const aOwned = isMissionOwned(a);
+    const bOwned = isMissionOwned(b);
+    if (aOwned !== bOwned) return aOwned ? 1 : -1;
+    return a.distance - b.distance;
+  });
+}
+
+function visibleQuizMissions() {
+  return groupQuizMissions(state.ranked.filter((quiz) => (
+    quiz.distance <= APP_CONFIG.questVisibilityRadiusMeters
+  )));
+}
+
+function updateNearby() {
+  state.ranked = rankNearbyQuizzes(state.quizzes, state.position, APP_CONFIG.maxAccuracyAllowanceMeters);
+  updateMapState();
+  renderQuestList(visibleQuizMissions());
+}
+
+function renderTourSpots() {
+  const section = $("tour-section");
+  const list = $("tour-list");
+  if (!state.tourSpots.length) {
+    section.classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+  section.classList.remove("hidden");
+  list.innerHTML = state.tourSpots.map((spot) => {
+    const rawImageUrl = String(spot.image || "").trim();
+    const imageUrl = /^https?:\/\//i.test(rawImageUrl) ? rawImageUrl.replace(/^http:/i, "https:") : "";
+    const image = imageUrl
+      ? `<img src="${escapeHTML(imageUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+      : '<span class="tour-image-placeholder" aria-hidden="true">⌖</span>';
+    return `<article class="tour-card">
+      ${image}
+      <div class="tour-card-body">
+        <strong>${escapeHTML(spot.title)}</strong>
+        <p>${escapeHTML(spot.address || "주소 정보 없음")}</p>
+        <small>${escapeHTML(formatDistance(Number(spot.distance)))}</small>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+async function loadNearbyTourSpots({ force = false } = {}) {
+  if (!state.position) return;
+  if (state.preview) {
+    state.tourSpots = PREVIEW_TOUR_SPOTS.filter((spot) => spot.distance <= APP_CONFIG.tourApiRadiusMeters);
+    renderTourSpots();
+    return;
+  }
+  const proxyUrl = String(APP_CONFIG.tourApiProxyUrl || "").trim();
+  if (!proxyUrl) {
+    state.tourSpots = [];
+    renderTourSpots();
+    return;
+  }
+  const moved = state.tourOrigin ? distanceMeters(state.position, state.tourOrigin) : Number.POSITIVE_INFINITY;
+  if (!force && state.tourFetchedAt && Date.now() - state.tourFetchedAt < 120000 && moved < 300) return;
+  if (state.tourLoading) return;
+
+  state.tourLoading = true;
+  try {
+    const url = new URL(proxyUrl);
+    url.searchParams.set("action", "tourNearby");
+    url.searchParams.set("lat", String(state.position.latitude));
+    url.searchParams.set("lng", String(state.position.longitude));
+    url.searchParams.set("radius", String(APP_CONFIG.tourApiRadiusMeters));
+    url.searchParams.set("limit", String(APP_CONFIG.tourApiResultCount));
+    const data = await loadTourProxy(url);
+    if (!data.success || !Array.isArray(data.items)) throw new Error(data.message || "TourAPI response error");
+    state.tourSpots = data.items.filter((spot) => (
+      Number.isFinite(Number(spot.distance)) &&
+      Number(spot.distance) <= APP_CONFIG.tourApiRadiusMeters
+    ));
+    state.tourOrigin = { latitude: state.position.latitude, longitude: state.position.longitude };
+    state.tourFetchedAt = Date.now();
+    renderTourSpots();
+  } catch (error) {
+    console.warn("Nearby tourism data load failed", error);
+    if (!state.tourSpots.length) renderTourSpots();
+  } finally {
+    state.tourLoading = false;
+  }
+}
+
+function loadAppsScriptProxy(url, label = "Apps Script") {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__geoQuestProxy_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement("script");
+    const timeout = setTimeout(() => finish(new Error(`${label} 응답 시간이 초과되었습니다.`)), 12000);
+
+    function finish(error, data) {
+      clearTimeout(timeout);
+      script.remove();
+      delete window[callbackName];
+      if (error) reject(error);
+      else resolve(data);
+    }
+
+    window[callbackName] = (data) => finish(null, data);
+    script.onerror = () => finish(new Error(`${label}에 연결하지 못했습니다.`));
+    url.searchParams.set("callback", callbackName);
+    script.src = url.toString();
+    document.head.appendChild(script);
+  });
+}
+
+function loadTourProxy(url) {
+  return loadAppsScriptProxy(url, "TourAPI");
+}
+
+const LOCATE_EMPTY_BUTTON = '<button type="button" class="empty-compass empty-locate" aria-label="현재 위치 확인" title="현재 위치 확인"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></button>';
+
+function updateQuestHeadingAddress() {
+  $("quest-heading-address").textContent = state.currentAddress ? `(${state.currentAddress})` : "";
+}
+
+function renderQuestError(message) {
+  state.visibleMissions = [];
+  $("quest-list").classList.add("hidden");
+  const empty = $("quest-empty");
+  empty.classList.remove("hidden");
+  empty.innerHTML = `<span class="empty-compass">!</span><h3>퀴즈를 불러오지 못했어요.</h3><p>${escapeHTML(message)}<br>Apps Script 배포와 시트 헤더를 확인해 주세요.</p>`;
+  $("quest-count-badge").textContent = "0";
+}
+
+function renderQuestList(items) {
+  const list = $("quest-list");
+  const empty = $("quest-empty");
+  state.visibleMissions = items;
+  updateQuestHeadingAddress();
+  $("quest-count-badge").textContent = String(items.length);
+  $("quest-count-badge").setAttribute("aria-label", `주변 퀴즈 ${items.length}개`);
+
+  if (!state.quizzes.length) {
+    list.classList.add("hidden");
+    empty.classList.remove("hidden");
+    empty.innerHTML = '<span class="empty-compass">▦</span><h3>등록된 퀴즈가 없어요.</h3>';
+    return;
+  }
+  if (!state.position) {
+    list.classList.add("hidden");
+    empty.classList.remove("hidden");
+    empty.innerHTML = `${LOCATE_EMPTY_BUTTON}<h3>위치를 확인하세요.</h3>`;
+    return;
+  }
+  if (!items.length) {
+    list.classList.add("hidden");
+    empty.classList.remove("hidden");
+    empty.innerHTML = '<span class="empty-compass">⌖</span><h3>20km 안에 등록된 퀴즈가 없어요.</h3>';
+    return;
+  }
+
+  empty.classList.add("hidden");
+  list.classList.remove("hidden");
+  list.innerHTML = "";
+  items.forEach((item) => {
+    const owned = isMissionOwned(item);
+    const activationRadius = Math.max(1, Math.round(Number(item.radius) || APP_CONFIG.questActivationRadiusMeters));
+    const article = document.createElement("article");
+    article.className = `quest-item${item.inRange ? " in-range" : ""}${owned ? " owned" : ""}`;
+    article.innerHTML = `
+      <div class="quest-meta">
+        <span class="distance-badge">${escapeHTML(formatDistance(item.distance))}</span>
+        <span class="range-badge">${item.inRange ? "● 도전 가능" : `${activationRadius}m 안에서 활성화`}</span>
+      </div>
+      <h3>${escapeHTML(item.placeName)}</h3>
+      <p>${escapeHTML(item.regionId)} · ${owned ? "스탬프 획득 완료" : "미획득 탐방지"}</p>
+      <button type="button" ${item.inRange ? "" : "disabled"}>${item.inRange ? (owned ? "퀴즈 다시 풀기" : "현장 퀴즈 도전") : `${activationRadius}m 안으로 이동하세요`}</button>`;
+    article.querySelector("button").addEventListener("click", () => openQuiz(item));
+    list.appendChild(article);
+  });
+}
+
+function quizzesForMission(mission) {
+  const key = missionKey(mission);
+  return state.ranked.filter((quiz) => missionKey(quiz) === key && quiz.inRange);
+}
+
+function openQuiz(mission) {
+  const candidates = quizzesForMission(mission);
+  if (!candidates.length) {
+    showToast("현재 위치를 다시 확인해 주세요.");
+    return;
+  }
+  const quiz = candidates[Math.floor(Math.random() * candidates.length)];
+  state.currentQuiz = quiz;
+  const content = $("quiz-dialog-content");
+  content.innerHTML = `
+    <div class="quiz-head">
+      <p class="eyebrow">${escapeHTML(quiz.regionId)} · 현장 퀴즈</p>
+      <h2>${escapeHTML(quiz.placeName)}</h2>
+      <p>${escapeHTML(formatDistance(quiz.distance))} 거리에서 도전 중</p>
+    </div>
+    <div class="quiz-body">
+      <p class="quiz-question">${escapeHTML(quiz.question)}</p>
+      <div class="choice-list"></div>
+      <div id="quiz-feedback" class="quiz-feedback hidden"></div>
+    </div>`;
+  const choices = content.querySelector(".choice-list");
+  quiz.choices.forEach((choice, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "choice-button";
+    button.innerHTML = `<span>${index + 1}</span><b>${escapeHTML(choice)}</b>`;
+    button.addEventListener("click", () => answerQuiz(index, button));
+    choices.appendChild(button);
+  });
+  $("quiz-dialog").showModal();
+}
+
+async function answerQuiz(selectedIndex, button) {
+  const quiz = state.currentQuiz;
+  if (!quiz || button.disabled) return;
+  const feedback = $("quiz-feedback");
+  if (selectedIndex !== quiz.answerIndex) {
+    button.classList.add("wrong");
+    button.disabled = true;
+    feedback.classList.remove("hidden");
+    feedback.innerHTML = "<strong>아쉬워요!</strong> 다른 답을 한 번 더 생각해 보세요.";
+    return;
+  }
+
+  const buttons = [...document.querySelectorAll(".choice-button")];
+  buttons.forEach((choice) => { choice.disabled = true; });
+  button.classList.add("correct");
+  const key = missionKey(quiz);
+  const alreadyOwned = state.ownedMissions.has(key);
+  if (!alreadyOwned) {
+    state.ownedMissions.add(key);
+    state.acquiredMissions[key] = {
+      quizId: quiz.id,
+      regionId: quiz.regionId,
+      placeName: quiz.placeName,
+      acquiredAt: new Date().toISOString()
+    };
+    syncDerivedOwnership();
+    updateMapState();
+    updateProgressUI();
+    await saveProgress();
+  }
+  showSuccess(quiz, alreadyOwned);
+}
+
+function showSuccess(quiz, alreadyOwned) {
+  const explanation = quiz.explanation || "정답을 맞혔습니다. 멋진 탐험이었어요!";
+  const regionCleared = state.owned.has(quiz.regionId);
+  $("quiz-dialog-content").innerHTML = `
+    <div class="success-view">
+      <div class="success-seal">${alreadyOwned ? "복습" : "획득"}</div>
+      <p class="eyebrow">정답입니다</p>
+      <h2>${escapeHTML(quiz.placeName)} ${alreadyOwned ? "복습 완료!" : "스탬프 획득!"}</h2>
+      ${regionCleared ? `<strong class="region-clear-message">${escapeHTML(quiz.regionId)} 지역 완료</strong>` : ""}
+      <p>${escapeHTML(explanation)}</p>
+      <button id="success-close" class="primary-button" type="button">지도로 돌아가기</button>
+    </div>`;
+  $("success-close").addEventListener("click", () => {
+    $("quiz-dialog").close();
+    navigateToView("map");
+    requestAnimationFrame(() => zoomToMapRegion(quiz.regionId));
+  });
+  renderQuestList(visibleQuizMissions());
+}
+
+function updateUserUI(permission) {
+  const displayName = permission.displayName || "학생";
+  state.canEdit = permission.canEdit === true;
+  $("user-name").textContent = displayName;
+  $("passport-user-name").textContent = displayName;
+  $("user-photo").src = state.user.photoURL || "./icon-192.png";
+  $("user-photo").alt = `${displayName} 프로필`;
+  $("sheet-link").classList.toggle("hidden", !state.canEdit);
+  $("refresh-button").classList.toggle("hidden", !state.canEdit);
+  $("passport-actions").classList.toggle("solo", !state.canEdit);
+}
+
+async function enterApp(permission) {
+  setLoading("정복 기록을 불러오는 중...");
+  await Promise.all([loadProgress(), refreshQuizzes()]);
+  const migratedProgress = migrateLegacyProgress();
+  if (migratedProgress) await saveProgress();
+  buildMap();
+  updateUserUI(permission);
+  updateProgressUI();
+  $("sheet-link").href = APP_CONFIG.sheetUrl;
+  showScreen("app");
+  const requestedView = location.hash.slice(1);
+  const initialView = VIEW_IDS.has(requestedView) ? requestedView : "passport";
+  if (location.hash !== `#${initialView}`) {
+    history.replaceState({ view: initialView }, "", `${location.pathname}${location.search}#${initialView}`);
+  }
+  switchView(initialView);
+  if (state.preview) showToast("로컬 미리보기 모드입니다.");
+}
+
+function showPermissionRequest(user) {
+  $("request-email").textContent = user.email || "현재 계정";
+  $("request-name").value = user.displayName || "";
+  $("request-student-id").value = "";
+  $("request-error").classList.add("hidden");
+  $("request-submit-button").disabled = false;
+  $("request-submit-button").textContent = "권한 요청";
+  showScreen("request");
+  requestAnimationFrame(() => (user.displayName ? $("request-student-id") : $("request-name")).focus());
+}
+
+function showPermissionStatus(status, user, detail = "") {
+  const messages = {
+    pending: {
+      icon: "⏳",
+      title: "승인 대기 중",
+      message: "Jame의 승인 후 사용할 수 있어요."
+    },
+    denied: {
+      icon: "🔒",
+      title: "접근이 제한되었어요.",
+      message: "승인이 거부되어있어요. Jame에게 문의하세요."
+    },
+    awaiting_sync: {
+      icon: "↻",
+      title: "승인 대기 중",
+      message: "Jame의 승인 후 사용할 수 있어요."
+    },
+    error: {
+      icon: "⚠️",
+      title: "권한을 확인하지 못했어요.",
+      message: detail || "잠시 후 다시 확인해 주세요."
+    }
+  };
+  const content = messages[status] || messages.error;
+  $("denied-icon").textContent = content.icon;
+  $("denied-title").textContent = content.title;
+  $("denied-message").textContent = content.message;
+  $("denied-email").textContent = user.email || "현재 계정";
+  showScreen("denied");
+}
+
+async function submitPermissionRequest(event) {
+  event.preventDefault();
+  if (!state.user) return;
+  const name = $("request-name").value.trim();
+  const studentId = $("request-student-id").value.trim();
+  const errorBox = $("request-error");
+  if (!name) {
+    errorBox.textContent = "이름을 입력해 주세요.";
+    errorBox.classList.remove("hidden");
+    $("request-name").focus();
+    return;
+  }
+  if (!/^\d{5}$/.test(studentId)) {
+    errorBox.textContent = "학번은 숫자 5자리로 입력해 주세요.";
+    errorBox.classList.remove("hidden");
+    $("request-student-id").focus();
+    return;
+  }
+
+  const button = $("request-submit-button");
+  button.disabled = true;
+  button.textContent = "요청 중...";
+  errorBox.classList.add("hidden");
+  try {
+    const result = await loadAppsScriptAction("requestStudentPermission", {
+      email: state.user.email || "",
+      name,
+      studentId
+    });
+    if (!result?.success) throw new Error(result?.message || "권한 요청에 실패했습니다.");
+    if (result.status === "approved") {
+      await handleSignedInUser(state.user);
+      return;
+    }
+    showPermissionStatus(result.status === "denied" ? "denied" : "pending", state.user);
+  } catch (error) {
+    console.error("Permission request failed", error);
+    errorBox.textContent = error.message || "권한 요청에 실패했습니다.";
+    errorBox.classList.remove("hidden");
+    button.disabled = false;
+    button.textContent = "권한 요청";
+  }
+}
+
+async function handleSignedInUser(user) {
+  state.user = user;
+  setLoading("학생 권한을 확인하는 중...");
+  try {
+    const permission = await checkPermission(user);
+    if (permission.status === "not_found") {
+      showPermissionRequest(user);
+      return;
+    }
+    if (!permission.approved) {
+      showPermissionStatus(permission.status, user);
+      return;
+    }
+    await enterApp(permission);
+  } catch (error) {
+    console.error("Permission check failed", error);
+    showPermissionStatus("error", user, error.message);
+    showToast("권한 정보를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  }
+}
+
+async function login() {
+  const button = $("login-button");
+  const errorBox = $("login-error");
+  button.disabled = true;
+  errorBox.classList.add("hidden");
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    await signInWithPopup(auth, provider);
+  } catch (error) {
+    console.error("Google sign-in failed", error);
+    errorBox.textContent = error?.code === "auth/popup-blocked"
+      ? "팝업이 차단되었습니다. 브라우저에서 팝업을 허용해 주세요."
+      : "로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    errorBox.classList.remove("hidden");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function logout() {
+  if (state.watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(state.watchId);
+  state.watchId = null;
+  state.user = null;
+  state.canEdit = false;
+  state.position = null;
+  state.tourSpots = [];
+  state.tourOrigin = null;
+  state.tourFetchedAt = 0;
+  state.currentAddress = "";
+  state.addressOrigin = null;
+  state.addressFetchedAt = 0;
+  state.addressFailedAt = 0;
+  state.owned.clear();
+  state.ownedMissions.clear();
+  state.legacyOwnedRegions.clear();
+  if (state.preview) {
+    location.href = location.pathname;
+    return;
+  }
+  await signOut(auth);
+}
+
+function bindEvents() {
+  updateNetworkStatus();
+  window.addEventListener("offline", updateNetworkStatus);
+  window.addEventListener("online", () => {
+    updateNetworkStatus();
+    if (!screens.app.classList.contains("hidden")) showToast("온라인으로 다시 연결되었어요.");
+  });
+  $("login-button").addEventListener("click", login);
+  $("permission-request-form").addEventListener("submit", submitPermissionRequest);
+  $("request-logout-button").addEventListener("click", logout);
+  $("request-student-id").addEventListener("input", (event) => {
+    event.target.value = event.target.value.replace(/\D/g, "").slice(0, 5);
+  });
+  $("denied-logout-button").addEventListener("click", logout);
+  $("retry-permission-button").addEventListener("click", () => state.user && handleSignedInUser(state.user));
+  $("user-button").addEventListener("click", () => {
+    if (confirm("로그아웃할까요?")) logout();
+  });
+  $("location-button").addEventListener("click", startLocationWatch);
+  $("quest-empty").addEventListener("click", (event) => {
+    if (event.target.closest(".empty-locate")) startLocationWatch();
+  });
+  $("passport-stamp").addEventListener("click", () => navigateToView("map"));
+  $("map-back-button").addEventListener("click", resetMapZoom);
+  $("refresh-button").addEventListener("click", async () => {
+    await refreshQuizzes({ notify: true });
+    await loadNearbyTourSpots({ force: true });
+  });
+  document.querySelectorAll("[data-view]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      navigateToView(link.dataset.view);
+    });
+  });
+  window.addEventListener("popstate", () => switchView(location.hash.slice(1)));
+  $("quiz-dialog").addEventListener("close", () => { state.currentQuiz = null; });
+}
+
+async function init() {
+  bindEvents();
+  if (!Object.keys(MUNIS).length) {
+    setLoading("지도 데이터를 읽지 못했습니다.");
+    return;
+  }
+  if (state.preview) {
+    await handleSignedInUser({ uid: "preview", email: "preview@local", displayName: "미리보기 학생", photoURL: "" });
+    return;
+  }
+  onAuthStateChanged(auth, (user) => {
+    if (user) handleSignedInUser(user);
+    else {
+      state.user = null;
+      showScreen("login");
+    }
+  });
+}
+
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch(console.warn));
+}
+
+init();

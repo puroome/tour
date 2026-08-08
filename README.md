@@ -1,2 +1,149 @@
-# tour
-온라인 스탬프 찍기
+# 발자국
+
+학생이 실제 장소에 도착하면 GPS 반경 안에서 해당 지역 퀴즈가 열리고, 정답을 맞히면 대한민국 시·군 지도에서 그 지역을 획득하는 모바일 전용 웹앱입니다. 세로형 여권·주변 퀴즈·정복 지도가 각각 독립 화면으로 전환됩니다.
+
+## 가져온 기존 구조
+
+- Google 로그인과 학생 권한: Geo Quest 전용 Firebase Authentication으로 로그인하고, 비공개 Google Sheets의 `user`을 교사가 Firestore로 동기화합니다. 앱은 Firestore `roster/{email}` 문서에서 승인 상태를 확인합니다.
+- 한국 지도: `geo-main/js/map-data.js`의 시·군 SVG 경계 데이터를 사용합니다.
+- 퀴즈: 연결된 [Google Sheets](https://docs.google.com/spreadsheets/d/130uj9eqwuHq6FTsXq_xBXh_qHT8Qb1WoCgCnHaQtsBE/edit?usp=sharing)의 `quiz` 탭에서 읽습니다.
+- 주변 탐방지: 한국관광공사 [국문 관광정보 서비스](https://www.data.go.kr/data/15101578/openapi.do)의 위치기반 관광정보를 Apps Script 프록시로 읽습니다.
+- 정복 기록: Firestore `users/{uid}/apps/geoQuest`와 브라우저 저장소에 함께 저장합니다. GPS 좌표는 저장하지 않습니다.
+
+## 0. 시트 탭 이름
+
+구글시트의 탭 이름은 다음 세 가지를 그대로 사용합니다. 이름이 다르면 Apps Script가 탭을 찾지 못합니다.
+
+| 탭 | 내용 | 이전 이름 |
+|---|---|---|
+| `user` | 학생 명단과 권한 | `학생명단` |
+| `quiz` | 퀴즈 데이터 | `sheet1` |
+| `db` | TourAPI 장소목록 | `장소목록` |
+
+이전 이름을 쓰던 시트라면 구글시트에서 탭을 **직접 우클릭 → 이름 바꾸기**로 세 개를 모두 변경한 뒤, [Code.gs](./Code.gs)를 다시 붙여 넣고 웹 앱을 새 버전으로 재배포하세요. 탭 이름과 Code.gs 중 하나만 바꾸면 퀴즈를 읽지 못합니다.
+
+## 1. 퀴즈 시트 준비
+
+현재 시트는 비어 있습니다. 시트에서 **확장 프로그램 → Apps Script**를 열고 [Code.gs](./Code.gs)의 내용을 붙여 넣은 뒤 `setupQuizSheet`를 한 번 실행하세요. 헤더, 입력 규칙, 예시 퀴즈 3개가 생성됩니다. 예시 행은 수정하거나 삭제해도 됩니다.
+
+시트 열은 다음과 같습니다.
+
+| 열 | 내용 | 예시 |
+|---|---|---|
+| 퀴즈ID | 중복되지 않는 ID | `seoul-001` |
+| 지역ID | 지도에서 획득할 정확한 키 | `서울특별시`, `제주시` |
+| 장소명 | 학생에게 보일 현장명 | `서울광장` |
+| 주소 | TourAPI의 장소 주소 | `전라남도 나주시 남평읍 ...` |
+| 위도 / 경도 | 현장 중심 좌표 | `37.5663` / `126.9779` |
+| 반경m | 도전 가능 반경 | `200` |
+| 문제 / 보기1~4 | 퀴즈 내용 | 자유 입력 |
+| 정답 | 정답 보기 번호 | `1`~`4` |
+| 해설 | 정답 후 안내 | 자유 입력 |
+| 활성 | 체크된 행만 사용 | 체크박스 |
+
+구글시트 파일은 **제한됨** 상태로 두고 학생에게 공유하지 마세요. 앱은 공개된 Apps Script 웹 앱을 통해 퀴즈 데이터만 읽으며 `user` 내용은 전달하지 않습니다. `🧭 발자국 → 퀴즈 데이터 검사` 메뉴로 입력 오류를 확인할 수 있습니다.
+
+먼저 `🧭 발자국 → db 장소목록 새로 만들기`를 실행하세요. TourAPI의 관광지·문화시설 중 좌표가 있는 전체 장소가 `db` 탭에 생성됩니다. 원하는 장소의 `선택` 칸을 체크하고 `🧭 발자국 → 선택 장소를 퀴즈로 추가`를 실행하면 장소명·주소·퀴즈ID·지역ID·좌표·150m 반경이 `quiz`에 자동 추가됩니다.
+
+이제 `quiz`에서는 자동 추가된 장소 행에 `문제`, `보기1~4`, `정답`, `해설`만 작성하면 됩니다. `활성`도 자동 체크됩니다. 앱은 현재 위치 20km 이내의 등록된 장소 카드를 모두 보여주며, 각 행의 `반경m` 안에 들어온 카드만 퀴즈 버튼이 활성화됩니다. 자동 입력값은 150m이고 교사가 수동으로 바꿀 수 있습니다.
+
+이전 코드에서 장소가 1002행부터 추가된 경우 `🧭 발자국 → 퀴즈 빈 행 정리`를 한 번 실행하세요. 실제 퀴즈 행을 2행부터 위로 모으고, 빈 체크박스 행은 제거합니다.
+
+장소 기초 정보만 추가하고 문제·보기·정답이 비어 있는 행은 아직 완성된 퀴즈가 아니므로 앱 카드에 표시되지 않습니다. G~M열의 퀴즈 내용을 작성한 뒤 앱에서 새로고침하세요. `퀴즈 빈 행 정리`는 TourAPI의 통합 행정명도 지도에서 사용하는 광역시 이름으로 함께 보정합니다.
+
+지역ID가 지도 키와 다르면 퀴즈는 열리지만 지도 색칠이 되지 않습니다. 광역시는 `서울특별시`, `부산광역시`처럼 전체 이름을, 제주시는 `제주시`를 사용하세요.
+
+기존 퀴즈에 주소가 없거나 지역ID가 잘못 들어간 경우 `🧭 발자국 → 퀴즈 주소·지역 다시 채우기`를 한 번 실행하세요. `db`의 콘텐츠ID를 기준으로 주소와 지역ID를 다시 채웁니다. 앱은 주소를 우선 확인하고 위도·경도를 지도 좌표로 직접 투영하므로, 광주 인근 나주 장소처럼 경계가 가까운 곳도 실제 시·군에 표시됩니다.
+
+### user 탭과 권한 승인
+
+기존 구글시트에 `user` 탭을 직접 만들고 1행에 다음 헤더를 입력합니다.
+
+| Email | Name | ID | Permission | Edit |
+|---|---|---|---|---|
+| Google 계정 | 학생 이름 | 학생은 숫자 5자리 학번, 관리자는 빈칸 허용 | `yes` 승인, `no` 차단, 빈칸 대기 | `yes` 관리자, `no` 또는 빈칸 학생 |
+
+교사가 학생을 직접 추가하거나, 처음 로그인한 학생이 이름과 5자리 학번으로 신청할 수 있습니다. 교사는 `Permission`에 `yes`, `no` 또는 빈칸을 입력하고 `Edit`에 `yes`, `no` 또는 빈칸을 입력한 뒤 `🧭 발자국 → user 명단 → Firebase 동기화`를 실행합니다. 일반 학생은 5자리 ID가 필수이고 `Edit=yes`인 관리자는 ID를 비워둘 수 있습니다. 동기화는 이메일·학번 형식·중복 여부를 검사한 후 Firestore `roster` 컬렉션을 현재 시트 내용으로 갱신합니다.
+
+`Permission=yes`이면서 `Edit=yes`인 계정에는 앱 상단의 관리자 시트 링크가 표시됩니다. Google Sheets 자체 편집 권한은 Google Drive 공유 설정에서 별도로 부여해야 합니다.
+
+## 2. TourAPI 연결
+
+API 키는 GitHub에 올리는 파일이나 브라우저 코드에 넣지 않습니다.
+
+1. 퀴즈 시트의 Apps Script에서 **프로젝트 설정 → 스크립트 속성**을 엽니다.
+2. 속성 이름 `TOUR_API_KEY`에 공공데이터포털의 일반 인증키를 저장합니다. 인코딩·디코딩 키 모두 처리됩니다.
+3. `🧭 발자국 → TourAPI 연결 확인`을 실행합니다.
+4. **배포 → 새 배포 → 웹 앱**을 선택하고, 실행 사용자는 `나`, 액세스 권한은 `모든 사용자`로 배포합니다. 기존 웹 앱의 코드를 바꾼 경우 **배포 관리 → 수정 → 새 버전**으로 다시 배포합니다. 퀴즈 조회와 학생 권한 신청도 이 웹 앱을 사용합니다.
+5. 생성된 `/exec` URL을 [js/config.js](./js/config.js)의 `tourApiProxyUrl`에 입력합니다.
+
+Firebase 동기화를 사용하려면 Apps Script의 프로젝트 설정에서 `appsscript.json` 매니페스트 표시를 켜고, 저장소의 [appsscript.json](./appsscript.json) 내용으로 교체합니다. Realtime Database 주소나 별도 비밀키는 필요 없습니다. 처음 동기화할 때 Firestore 관리용 Google 권한 승인 화면이 나타납니다.
+
+앱은 현재 위치 **300m 이내**의 **관광지(12)**와 **문화시설(14)**만 이름·주소·거리·사진과 함께 보여줍니다. 음식점·숙박·쇼핑·레포츠·축제·여행코스는 제외합니다. 수업용 문제와 역사·지리 해설은 기존처럼 교사가 구글시트에서 관리합니다. Apps Script는 같은 위치의 응답을 5분간 캐시해 일일 호출량을 줄입니다.
+
+현재 위치 주소는 같은 Apps Script 프록시가 OpenStreetMap Nominatim 역지오코딩으로 한 번 확인합니다. 동일 좌표 결과는 6시간 캐시하고 전체 요청을 초당 1회 미만으로 제한합니다. 앱 화면의 OpenStreetMap 출처 표기는 제거된 상태이므로, Nominatim 이용 정책의 출처 표시 요구를 다시 지키려면 여권 화면이나 앱 정보에 `© OpenStreetMap` 링크를 넣으세요.
+
+## 3. Firebase 확인
+
+Geo Quest 전용 Firebase 프로젝트 `tour-53b75`의 웹 앱 설정이 [js/config.js](./js/config.js)에 들어 있습니다. `voca-main`의 Firebase 프로젝트와 데이터는 공유하지 않습니다.
+
+1. Firebase Console → Authentication → Settings → Authorized domains에 GitHub Pages 도메인(예: `사용자명.github.io`)을 추가합니다.
+2. Authentication의 Google 로그인 제공업체를 활성화합니다.
+3. Realtime Database는 사용하지 않습니다.
+4. Firestore 규칙에 학생 본인의 권한 문서 읽기와 스탬프 문서 접근 범위를 함께 넣어 게시합니다.
+
+```text
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /roster/{email} {
+      allow read: if request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    match /users/{userId}/apps/geoQuest {
+      allow read, create, update: if request.auth != null
+        && request.auth.uid == userId;
+      allow delete: if false;
+    }
+  }
+}
+```
+
+Firestore 저장이 일시적으로 실패해도 현재 기기에는 정복 기록이 보관되고, 이후 다시 획득할 때 클라우드 저장을 재시도합니다.
+
+## 4. 로컬 실행과 테스트
+
+ES 모듈과 위치 권한 때문에 파일을 더블클릭하지 말고 로컬 서버를 사용하세요.
+
+```bash
+cd geo-quest-main
+python -m http.server 4173
+```
+
+- 일반 화면: `http://localhost:4173/`
+- 인증 없이 UI와 퀴즈를 확인하는 로컬 전용 미리보기: `http://localhost:4173/?preview=1`
+- 부산 위치 미리보기: `http://localhost:4173/?preview=1&region=부산광역시`
+- 자동 테스트: `npm test`
+- 문법 검사: `npm run check`
+
+`preview=1`은 localhost 또는 `file:`에서만 작동하므로 GitHub Pages에서는 로그인과 실제 GPS 흐름을 우회할 수 없습니다.
+
+## 5. GitHub Pages 게시
+
+1. 이 폴더를 새 GitHub 저장소의 루트에 올립니다.
+2. 저장소 **Settings → Pages**에서 `Deploy from a branch`를 선택합니다.
+3. 배포 브랜치의 `/ (root)`를 선택합니다.
+4. 게시된 `https://사용자명.github.io/저장소명/` 주소를 Firebase Authorized domains에 등록합니다. 등록할 값은 경로가 아니라 `사용자명.github.io` 도메인입니다.
+
+GitHub Pages는 HTTPS이므로 실제 기기에서 위치 권한을 사용할 수 있습니다. 처음 접속한 학생은 브라우저의 위치 권한 요청을 허용해야 합니다.
+
+## 운영 메모
+
+- 퀴즈 활성화에는 GPS 정확도 보정값을 더하지 않고 시트의 `반경m`을 그대로 적용합니다.
+- 같은 장소명·좌표에 여러 문제를 등록하면 그중 하나가 무작위로 출제됩니다.
+- 정답을 맞히면 장소별 스탬프를 얻고, 한 지역의 등록 장소를 모두 완료하면 지도 지역 전체가 빨간색으로 바뀝니다.
+- 시트의 정답도 브라우저로 전달되는 학습용 구조입니다. 고부담 평가나 부정행위 방지가 필요한 시험 용도로는 별도 서버 검증이 필요합니다.

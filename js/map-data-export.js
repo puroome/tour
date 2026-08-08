@@ -1,0 +1,1 @@
+window.KOREA_MAP_DATA = { MAP_W, MAP_H, PROVINCES, MUNIS };

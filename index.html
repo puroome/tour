@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#173f35">
+  <meta name="description" content="현장에서 퀴즈를 풀고 우리나라 지역을 획득하는 위치 기반 학습 지도">
+  <title>발자국</title>
+  <link rel="icon" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="paper-noise" aria-hidden="true"></div>
+  <div id="offline-banner" class="offline-banner hidden" role="status" aria-live="polite">
+    <span aria-hidden="true"></span>
+    <strong>오프라인 상태예요.</strong>
+    <small>연결되면 기록을 다시 동기화합니다.</small>
+  </div>
+
+  <section id="loading-screen" class="full-screen loading-screen" aria-live="polite">
+    <div class="compass-loader" aria-hidden="true"><span></span></div>
+    <p id="loading-message">지도를 펼치는 중...</p>
+  </section>
+
+  <section id="login-screen" class="full-screen hidden">
+    <div class="login-layout">
+      <div class="login-card">
+        <div class="brand-mark"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.16 7.6C15.66 7.6 17.96 9.1 17.96 11.4C17.96 13.3 16.76 14.7 16.16 16.3C15.56 17.9 15.86 18.9 15.86 20C15.86 21.9 14.06 23 11.96 23C9.86 23 8.06 21.9 8.06 20C8.06 18.9 8.36 17.9 7.76 16.3C7.16 14.7 5.96 13.3 5.96 11.4C5.96 9.1 8.36 7.6 12.16 7.6Z"/><ellipse cx="7.26" cy="4.5" rx="2.15" ry="2.6" transform="rotate(-20 7.26 4.5)"/><ellipse cx="11.46" cy="2.9" rx="1.55" ry="1.9" transform="rotate(-6 11.46 2.9)"/><ellipse cx="14.96" cy="3.4" rx="1.4" ry="1.75" transform="rotate(6 14.96 3.4)"/><ellipse cx="17.66" cy="5" rx="1.25" ry="1.55" transform="rotate(18 17.66 5)"/></svg></div>
+        <p class="eyebrow">LOCAL QUEST</p>
+        <h2>발자국</h2>
+        <p>승인받은 학생 계정으로 로그인하세요.</p>
+        <button id="login-button" class="google-button" type="button">
+          <img src="./google.png" alt="">
+          Google 계정으로 로그인
+        </button>
+        <p class="privacy-note">현재 위치는 퀴즈 판정에만 사용하며 서버에 저장하지 않습니다.</p>
+        <p id="login-error" class="inline-error hidden" role="alert"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="permission-request-screen" class="full-screen hidden">
+    <div class="message-card permission-card">
+      <span class="message-icon">🪪</span>
+      <p class="eyebrow">탐험가 등록</p>
+      <h1>학생 정보를 입력하세요.</h1>
+      <p><strong id="request-email"></strong> 계정으로 선생님께 사용 권한을 요청합니다.</p>
+      <form id="permission-request-form" class="permission-form">
+        <label>
+          <span>이름</span>
+          <input id="request-name" type="text" maxlength="40" autocomplete="name" required placeholder="이름">
+        </label>
+        <label>
+          <span>학번</span>
+          <input id="request-student-id" type="text" inputmode="numeric" pattern="[0-9]{5}" minlength="5" maxlength="5" autocomplete="off" required placeholder="5자리 숫자">
+        </label>
+        <p id="request-error" class="inline-error hidden" role="alert"></p>
+        <button id="request-submit-button" class="primary-button" type="submit">권한 요청</button>
+        <button id="request-logout-button" class="text-button" type="button">다른 계정으로 로그인</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="denied-screen" class="full-screen hidden">
+    <div class="message-card">
+      <span id="denied-icon" class="message-icon">🔒</span>
+      <p class="eyebrow">접근 권한 필요</p>
+      <h1 id="denied-title">승인을 기다리고 있어요.</h1>
+      <p id="denied-message">선생님이 학생 명단을 확인한 뒤 사용할 수 있습니다.</p>
+      <p><strong id="denied-email"></strong></p>
+      <div class="message-actions">
+        <button id="retry-permission-button" class="primary-button" type="button">권한 다시 확인</button>
+        <button id="denied-logout-button" class="text-button" type="button">다른 계정으로 로그인</button>
+      </div>
+    </div>
+  </section>
+
+  <main id="app-shell" class="app-shell hidden">
+    <header class="topbar">
+      <a class="brand" href="#passport" data-view="passport" aria-label="발자국 홈">
+        <span class="brand-mark small"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.16 7.6C15.66 7.6 17.96 9.1 17.96 11.4C17.96 13.3 16.76 14.7 16.16 16.3C15.56 17.9 15.86 18.9 15.86 20C15.86 21.9 14.06 23 11.96 23C9.86 23 8.06 21.9 8.06 20C8.06 18.9 8.36 17.9 7.76 16.3C7.16 14.7 5.96 13.3 5.96 11.4C5.96 9.1 8.36 7.6 12.16 7.6Z"/><ellipse cx="7.26" cy="4.5" rx="2.15" ry="2.6" transform="rotate(-20 7.26 4.5)"/><ellipse cx="11.46" cy="2.9" rx="1.55" ry="1.9" transform="rotate(-6 11.46 2.9)"/><ellipse cx="14.96" cy="3.4" rx="1.4" ry="1.75" transform="rotate(6 14.96 3.4)"/><ellipse cx="17.66" cy="5" rx="1.25" ry="1.55" transform="rotate(18 17.66 5)"/></svg></span>
+        <span><b>발자국</b><small>LOCAL QUEST</small></span>
+      </a>
+      <div class="topbar-actions">
+        <a id="sheet-link" class="icon-button teacher-link hidden" href="#" target="_blank" rel="noopener" title="관리자 시트 열기" aria-label="관리자 시트 열기">▦</a>
+        <button id="user-button" class="user-chip" type="button" aria-label="로그아웃" title="로그아웃">
+          <img id="user-photo" src="./icon-192.png" alt="">
+          <span id="user-name">학생</span>
+        </button>
+      </div>
+    </header>
+
+    <section id="passport" class="app-view passport-screen active" aria-label="탐험 여권">
+      <div class="passport-card" aria-label="나의 탐험 기록">
+        <div class="passport-top"><span>대한민국 탐험 여권</span><span>✦</span></div>
+        <div class="passport-profile">
+          <span class="passport-emblem"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.16 7.6C15.66 7.6 17.96 9.1 17.96 11.4C17.96 13.3 16.76 14.7 16.16 16.3C15.56 17.9 15.86 18.9 15.86 20C15.86 21.9 14.06 23 11.96 23C9.86 23 8.06 21.9 8.06 20C8.06 18.9 8.36 17.9 7.76 16.3C7.16 14.7 5.96 13.3 5.96 11.4C5.96 9.1 8.36 7.6 12.16 7.6Z"/><ellipse cx="7.26" cy="4.5" rx="2.15" ry="2.6" transform="rotate(-20 7.26 4.5)"/><ellipse cx="11.46" cy="2.9" rx="1.55" ry="1.9" transform="rotate(-6 11.46 2.9)"/><ellipse cx="14.96" cy="3.4" rx="1.4" ry="1.75" transform="rotate(6 14.96 3.4)"/><ellipse cx="17.66" cy="5" rx="1.25" ry="1.55" transform="rotate(18 17.66 5)"/></svg></span>
+          <span><small>EXPLORER</small><strong id="passport-user-name">학생</strong></span>
+        </div>
+        <div class="passport-body">
+          <button type="button" id="passport-stamp" class="passport-stamp" aria-label="정복 지도 열기" title="정복 지도 열기"><span id="owned-count">0</span><small>획득 장소</small></button>
+          <div class="passport-detail">
+            <p>PLACE COMPLETION</p>
+            <strong id="completion-rate">0%</strong>
+            <div class="progress-track"><span id="completion-bar"></span></div>
+            <small><span id="registered-count">0</span>개 등록 장소 중</small>
+          </div>
+        </div>
+        <div id="location-status" class="location-status" role="status">
+          <span class="status-icon">◎</span>
+          <span class="status-copy">
+            <b id="location-status-title">위치 확인 전</b>
+            <small><span id="location-status-detail">주변 퀴즈를 찾으세요.</span></small>
+          </span>
+        </div>
+        <div id="passport-actions" class="passport-actions solo">
+          <button id="location-button" class="primary-button location-button" type="button"><span>⌖</span> 내 위치 확인</button>
+          <button id="refresh-button" class="secondary-button hidden" type="button" aria-label="퀴즈 새로고침" title="퀴즈 새로고침">↻</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="quests" class="app-view quest-screen" aria-label="주변 퀴즈">
+      <aside class="quest-panel">
+        <div class="section-heading compact"><h2>주변 퀴즈 <span id="quest-heading-address" class="heading-address"></span></h2><span id="quest-count-badge" class="count-badge">0</span></div>
+        <section id="tour-section" class="tour-section hidden" aria-label="주변 탐방지">
+          <div class="subsection-heading"><h3>주변 탐방지</h3><small>TourAPI</small></div>
+          <div id="tour-list" class="tour-list"></div>
+        </section>
+        <div id="quest-empty" class="empty-state">
+          <button type="button" class="empty-compass empty-locate" aria-label="현재 위치 확인" title="현재 위치 확인"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></button>
+          <h3>위치를 확인하세요.</h3>
+        </div>
+        <div id="quest-list" class="quest-list hidden"></div>
+      </aside>
+    </section>
+
+    <section id="map" class="app-view map-screen" aria-label="정복 지도">
+      <article class="map-card">
+        <div class="section-heading compact">
+          <div class="map-heading-title">
+            <button id="map-back-button" class="map-back-button hidden" type="button" aria-label="전국 지도로 돌아가기">←</button>
+            <h2 id="map-title">정복 지도</h2>
+          </div>
+          <div class="legend"><span><i class="legend-owned"></i>지역 완료</span><span><i class="legend-nearby"></i>현장 미션</span></div>
+        </div>
+        <div class="map-stage">
+          <svg id="korea-map" viewBox="-8 -8 776 822" role="img" aria-label="대한민국 시군 지도"></svg>
+          <div id="map-tooltip" class="map-tooltip hidden"></div>
+        </div>
+        <section id="map-region-summary" class="map-region-summary hidden" aria-live="polite">
+          <div class="map-region-progress"><strong id="map-region-progress-title"></strong><span id="map-region-progress-count"></span></div>
+          <div id="map-place-list" class="map-place-list"></div>
+        </section>
+      </article>
+    </section>
+
+    <nav class="bottom-nav" aria-label="주요 화면">
+      <a class="active" href="#passport" data-view="passport" aria-current="page"><span>▣</span>여권</a>
+      <a href="#quests" data-view="quests"><span>◈</span>퀴즈</a>
+      <a href="#map" data-view="map"><span>⌖</span>지도</a>
+    </nav>
+  </main>
+
+  <dialog id="quiz-dialog" class="quiz-dialog">
+    <form method="dialog">
+      <button class="dialog-close" value="close" aria-label="퀴즈 닫기">×</button>
+    </form>
+    <div id="quiz-dialog-content"></div>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="./js/map-data.js"></script>
+  <script src="./js/map-data-export.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
