@@ -59,7 +59,6 @@ const state = {
   legacyOwnedRegions: new Set(),
   mapPaths: new Map(),
   selectedMapRegion: null,
-  expandedMapThemes: new Set(),
   mapAnimationFrame: null,
   mapBaseViewBox: BASE_MAP_VIEWBOX.slice(),
   watchId: null,
@@ -260,7 +259,7 @@ async function refreshQuizzes({ notify = false } = {}) {
   try {
     state.quizzes = await loadSheetQuizzes();
     populatePassportRegionSelect();
-    updateMapState();
+    updateMapState({ renderSummary: true });
     updateProgressUI();
     if (state.position) updateNearby();
     else renderQuestList([]);
@@ -434,7 +433,7 @@ function buildMap() {
   const dotLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
   dotLayer.id = "map-quiz-dots";
   svg.appendChild(dotLayer);
-  updateMapState();
+  updateMapState({ renderSummary: true });
 }
 
 function showMapTooltip(event) {
@@ -652,10 +651,8 @@ function renderMapRegionSummary() {
     .map(([theme, themeMissions]) => {
       const themeCompleted = themeMissions.filter(isMissionOwned).length;
       const themeCompletion = themeMissions.length ? themeCompleted / themeMissions.length * 100 : 0;
-      const themeKey = encodeURIComponent(`${regionId}\u0000${theme}`);
-      const expanded = state.expandedMapThemes.has(themeKey);
-      return `<section class="map-theme-group${expanded ? " expanded" : ""}">
-        <button type="button" class="map-theme-toggle${expanded ? " active" : ""}" data-theme-key="${themeKey}" aria-expanded="${expanded}" style="--theme-completion:${themeCompletion}%"><span>${escapeHTML(theme)}</span><small>${themeCompleted}/${themeMissions.length}</small></button>
+      return `<section class="map-theme-group">
+        <button type="button" class="map-theme-toggle" aria-expanded="false" style="--theme-completion:${themeCompletion}%"><span>${escapeHTML(theme)}</span><small>${themeCompleted}/${themeMissions.length}</small></button>
         <div class="map-theme-place-list">${themeMissions.map((mission) => {
           const owned = isMissionOwned(mission);
           const distance = state.position ? formatDistance(mission.displayDistance) : "위치 미확인";
@@ -668,36 +665,17 @@ function renderMapRegionSummary() {
     }).join("");
   $("map-place-list").querySelectorAll(".map-theme-toggle").forEach((button) => {
     const placeList = button.closest(".map-theme-group")?.querySelector(".map-theme-place-list");
-    if (button.getAttribute("aria-expanded") === "true" && placeList) {
-      placeList.style.maxHeight = "none";
-    }
-    button.onclick = function() { toggleMapThemePanel(this, placeList, button.dataset.themeKey); };
+    button.onclick = function() {
+      if (!placeList) return;
+      this.classList.toggle("active");
+      placeList.classList.toggle("open");
+      this.setAttribute("aria-expanded", String(placeList.classList.contains("open")));
+    };
   });
   $("map-place-list").querySelectorAll(".map-place-name").forEach((button) => {
     button.addEventListener("click", () => showPlaceDescription(sortedMissions[Number(button.dataset.missionIndex)]));
   });
   section.classList.remove("hidden");
-}
-
-function toggleMapThemePanel(button, placeList, themeKey) {
-  if (!placeList) return;
-  const expanded = Boolean(placeList.style.maxHeight);
-  const group = button.closest(".map-theme-group");
-  button.classList.toggle("active", !expanded);
-  button.setAttribute("aria-expanded", String(!expanded));
-  group?.classList.toggle("expanded", !expanded);
-  if (expanded) state.expandedMapThemes.delete(themeKey);
-  else state.expandedMapThemes.add(themeKey);
-  if (expanded) {
-    placeList.style.maxHeight = null;
-    return;
-  }
-  placeList.style.maxHeight = `${placeList.scrollHeight}px`;
-  window.setTimeout(() => {
-    if (placeList.isConnected && button.getAttribute("aria-expanded") === "true") {
-      placeList.style.maxHeight = "none";
-    }
-  }, 220);
 }
 
 function updateMapDots() {
@@ -754,7 +732,6 @@ function zoomToMapRegion(name) {
     showToast("이 지역에는 등록된 퀴즈가 아직 없습니다.");
     return;
   }
-  if (state.selectedMapRegion !== name) state.expandedMapThemes.clear();
   state.selectedMapRegion = name;
   const bbox = path.getBBox();
   const padding = Math.max(9, Math.max(bbox.width, bbox.height) * .24);
@@ -763,20 +740,19 @@ function zoomToMapRegion(name) {
   animateMapViewBox(target);
   $("map-title").textContent = name;
   $("map-back-button").classList.remove("hidden");
-  updateMapState();
+  updateMapState({ renderSummary: true });
 }
 
 function resetMapZoom() {
   state.selectedMapRegion = null;
-  state.expandedMapThemes.clear();
   state.mapBaseViewBox = BASE_MAP_VIEWBOX.slice();
   animateMapViewBox(BASE_MAP_VIEWBOX);
   $("map-title").textContent = "정복 지도";
   $("map-back-button").classList.add("hidden");
-  updateMapState();
+  updateMapState({ renderSummary: true });
 }
 
-function updateMapState() {
+function updateMapState({ renderSummary = false } = {}) {
   syncDerivedOwnership();
   const registered = new Set(uniqueRegions(state.quizzes));
   const nearby = new Set(state.ranked.filter((quiz) => quiz.inRange).map((quiz) => quiz.regionId));
@@ -796,7 +772,7 @@ function updateMapState() {
     }
   });
   updateMapDots();
-  renderMapRegionSummary();
+  if (renderSummary) renderMapRegionSummary();
 }
 
 function updateProgressUI() {
@@ -1113,7 +1089,7 @@ async function uploadSelectedFieldPhoto(file) {
       };
     }
     syncDerivedOwnership();
-    updateMapState();
+    updateMapState({ renderSummary: true });
     updateProgressUI();
     await saveProgress();
     renderQuestList(visibleQuizMissions());
@@ -1495,7 +1471,7 @@ async function answerQuiz(selectedIndex, button) {
       acquiredAt: new Date().toISOString()
     };
     syncDerivedOwnership();
-    updateMapState();
+    updateMapState({ renderSummary: true });
     updateProgressUI();
     await saveProgress();
   }

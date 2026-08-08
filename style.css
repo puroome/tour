@@ -963,10 +963,10 @@ body { background: #dfe5df; }
 .map-theme-toggle::before { content: "›"; margin-right: 5px; color: var(--orange); font-size: 17px; transition: transform .2s ease; }
 .map-theme-toggle span { flex: 1; }
 .map-theme-toggle small { color: var(--ink-soft); font-size: 10px; }
-.map-theme-group.expanded .map-theme-toggle { border-bottom: 1px solid var(--line); }
-.map-theme-group.expanded .map-theme-toggle::before { transform: rotate(90deg); }
-.map-theme-place-list { display: grid; gap: 8px; max-height: 0; overflow: hidden; padding: 0 9px; transition: max-height .2s ease-out, padding .2s ease-out; }
-.map-theme-group.expanded .map-theme-place-list { padding: 9px; }
+.map-theme-toggle.active { border-bottom: 1px solid var(--line); }
+.map-theme-toggle.active::before { transform: rotate(90deg); }
+.map-theme-place-list { display: grid; gap: 8px; max-height: 0; overflow: hidden; padding: 0; transition: max-height .2s ease-out; }
+.map-theme-place-list.open { max-height: none; padding: 9px; }
 .map-place-item.completed { border-color: #e3a4ad; background: #f6d8dd; }
 .map-place-name { overflow: hidden; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 
