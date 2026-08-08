@@ -76,6 +76,7 @@ const state = {
   addressFailedAt: 0,
   addressLoading: false,
   locationRefreshRequested: false,
+  lastRenderAt: 0,
   toastTimer: null,
   preview: PREVIEW_MODE
 };
@@ -254,15 +255,42 @@ async function loadSheetQuizzes() {
   return resolveQuizRegions(normalizeQuizRows(response));
 }
 
+const QUIZ_CACHE_KEY = "geoQuestQuizCache:v1";
+const QUIZ_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function saveQuizCache(quizzes) {
+  try {
+    localStorage.setItem(QUIZ_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), quizzes }));
+  } catch (error) {
+    console.warn("Quiz cache save failed", error);
+  }
+}
+
+function loadQuizCache() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(QUIZ_CACHE_KEY) || "null");
+    if (!Array.isArray(cached?.quizzes) || !cached.quizzes.length) return null;
+    if (Date.now() - Number(cached.savedAt) > QUIZ_CACHE_MAX_AGE_MS) return null;
+    return cached.quizzes;
+  } catch {
+    return null;
+  }
+}
+
+function applyLoadedQuizzes() {
+  populatePassportRegionSelect();
+  updateMapState({ renderSummary: true });
+  updateProgressUI();
+  if (state.position) updateNearby();
+  else renderQuestList([]);
+}
+
 async function refreshQuizzes({ notify = false } = {}) {
   if (notify) $("refresh-button").disabled = true;
   try {
     state.quizzes = await loadSheetQuizzes();
-    populatePassportRegionSelect();
-    updateMapState({ renderSummary: true });
-    updateProgressUI();
-    if (state.position) updateNearby();
-    else renderQuestList([]);
+    if (!state.preview) saveQuizCache(state.quizzes);
+    applyLoadedQuizzes();
 
     const invalidCount = state.quizzes.filter((quiz) => !MUNIS[quiz.regionId]).length;
     if (notify) {
@@ -272,21 +300,29 @@ async function refreshQuizzes({ notify = false } = {}) {
     }
   } catch (error) {
     console.error("Quiz sheet load failed", error);
-    state.quizzes = [];
-    renderQuestError(error.message);
-    if (notify) showToast("퀴즈 시트를 불러오지 못했습니다.");
+    // One failed refresh on a moving phone must not wipe a list that is already working.
+    const fallback = state.quizzes.length ? state.quizzes : loadQuizCache();
+    if (fallback?.length) {
+      state.quizzes = fallback;
+      applyLoadedQuizzes();
+      showToast("퀴즈를 새로 불러오지 못해 저장된 목록을 사용합니다.");
+    } else {
+      state.quizzes = [];
+      renderQuestError(error.message);
+      if (notify) showToast("퀴즈 시트를 불러오지 못했습니다.");
+    }
   } finally {
     $("refresh-button").disabled = false;
   }
 }
 
-function loadAppsScriptAction(action, parameters = {}, label = "학생 명단") {
+function loadAppsScriptAction(action, parameters = {}, label = "학생 명단", options = {}) {
   const proxyUrl = String(APP_CONFIG.tourApiProxyUrl || "").trim();
   if (!proxyUrl) return Promise.reject(new Error("Apps Script 주소가 설정되지 않았습니다."));
   const url = new URL(proxyUrl);
   url.searchParams.set("action", action);
   Object.entries(parameters).forEach(([key, value]) => url.searchParams.set(key, String(value ?? "")));
-  return loadAppsScriptProxy(url, label);
+  return loadAppsScriptProxy(url, label, options);
 }
 
 async function checkPermission(user) {
@@ -889,8 +925,22 @@ async function loadCurrentAddress() {
   }
 }
 
+// A phone streams fixes while its accuracy converges, and rebuilding every quest card and
+// map path on each one costs far more than it shows.
+const RENDER_MIN_MOVE_METERS = 10;
+const RENDER_MAX_INTERVAL_MS = 15000;
+// Neither a street address nor a 300m spot list means anything at a coarser fix than this.
+const REMOTE_LOOKUP_MAX_ACCURACY_METERS = 1000;
+
+function shouldRerenderForPosition(previous) {
+  if (!previous) return true;
+  if (Date.now() - state.lastRenderAt >= RENDER_MAX_INTERVAL_MS) return true;
+  return distanceMeters(previous, state.position) >= RENDER_MIN_MOVE_METERS;
+}
+
 function handleLocation(position) {
-  const isFirstFix = !state.position;
+  const previous = state.position;
+  const isFirstFix = !previous;
   state.position = positionFromGeolocation(position);
   const accuracy = Math.round(state.position.accuracy || 0);
   const addressDistance = state.addressOrigin ? distanceMeters(state.position, state.addressOrigin) : Number.POSITIVE_INFINITY;
@@ -899,11 +949,18 @@ function handleLocation(position) {
   } else {
     setLocationStatus("active", "위치 확인 완료", `주소 확인 중 · 정확도 약 ±${accuracy}m`);
   }
-  $("location-button").innerHTML = "<span>📍</span> 현재 위치 새로고침";
-  $("location-button").setAttribute("aria-busy", "false");
-  updateNearby();
-  loadCurrentAddress();
-  loadNearbyTourSpots();
+  const button = $("location-button");
+  button.disabled = false;
+  button.innerHTML = "<span>📍</span> 현재 위치 새로고침";
+  button.setAttribute("aria-busy", "false");
+  if (shouldRerenderForPosition(previous)) {
+    state.lastRenderAt = Date.now();
+    updateNearby();
+  }
+  if (accuracy <= REMOTE_LOOKUP_MAX_ACCURACY_METERS) {
+    loadCurrentAddress();
+    loadNearbyTourSpots();
+  }
   if (state.locationRefreshRequested) {
     state.locationRefreshRequested = false;
     showToast("현재 위치를 새로 확인했습니다.");
@@ -912,7 +969,17 @@ function handleLocation(position) {
 }
 
 function handleLocationError(error) {
+  const wasRefreshRequested = state.locationRefreshRequested;
   state.locationRefreshRequested = false;
+  const button = $("location-button");
+  button.disabled = false;
+  button.setAttribute("aria-busy", "false");
+  // A watch that already has a fix still times out in a tunnel or a basement. Keep the last
+  // known position on screen instead of replacing it with a failure the student cannot act on.
+  if (state.position && !wasRefreshRequested) {
+    button.innerHTML = "<span>📍</span> 현재 위치 새로고침";
+    return;
+  }
   const messages = {
     1: ["위치 권한이 꺼져 있어요", "브라우저 설정에서 이 사이트의 위치 권한을 허용해 주세요."],
     2: ["현재 위치를 찾지 못했어요", "야외나 창가에서 잠시 후 다시 시도해 주세요."],
@@ -920,8 +987,7 @@ function handleLocationError(error) {
   };
   const [title, detail] = messages[error?.code] || ["위치 확인에 실패했어요", "잠시 후 다시 시도해 주세요."];
   setLocationStatus("error", title, detail);
-  $("location-button").innerHTML = "<span>📍</span> 위치 다시 확인하기";
-  $("location-button").setAttribute("aria-busy", "false");
+  button.innerHTML = "<span>📍</span> 위치 다시 확인하기";
 }
 
 function startLocationWatch() {
@@ -943,25 +1009,41 @@ function startLocationWatch() {
   }
   if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
   setLocationStatus("", "위치를 찾는 중...", "GPS 확인 중");
-  $("location-button").disabled = true;
-  $("location-button").setAttribute("aria-busy", "true");
-  $("location-button").innerHTML = "<span>📍</span> 위치 찾는 중...";
+  const button = $("location-button");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.innerHTML = "<span>📍</span> 위치 찾는 중...";
+  // A network fix lands in about a second while the satellite lock behind it can take half a
+  // minute from cold, so the coarse position fills the screen in the meantime.
+  navigator.geolocation.getCurrentPosition(
+    (position) => { if (!state.position) handleLocation(position); },
+    () => {},
+    APP_CONFIG.locationQuickFixOptions
+  );
   state.watchId = navigator.geolocation.watchPosition(
-    (position) => {
-      $("location-button").disabled = false;
-      handleLocation(position);
-    },
-    (error) => {
-      $("location-button").disabled = false;
-      handleLocationError(error);
-    },
+    handleLocation,
+    handleLocationError,
     APP_CONFIG.locationWatchOptions
   );
 }
 
 function refreshCurrentLocation() {
   state.locationRefreshRequested = true;
-  startLocationWatch();
+  if (state.preview || state.watchId === null || !navigator.geolocation) {
+    startLocationWatch();
+    return;
+  }
+  // Restarting the watch would throw away the satellite lock it has been building, which is
+  // exactly what makes repeated taps take longer rather than shorter. Ask the running watch
+  // for one extra fix instead.
+  const button = $("location-button");
+  button.setAttribute("aria-busy", "true");
+  button.innerHTML = "<span>📍</span> 위치 확인 중...";
+  navigator.geolocation.getCurrentPosition(
+    handleLocation,
+    handleLocationError,
+    { ...APP_CONFIG.locationWatchOptions, maximumAge: 15000 }
+  );
 }
 
 function startFieldPhotoCapture(mission) {
@@ -1301,16 +1383,24 @@ async function loadNearbyTourSpots({ force = false } = {}) {
   }
 }
 
-function loadAppsScriptProxy(url, label = "Apps Script") {
+// Apps Script answers through two redirects onto a second host, and a cellular connection
+// can spend most of a short budget on the handshakes alone.
+const PROXY_TIMEOUT_MS = 25000;
+const PROXY_RETRY_DELAY_MS = 1200;
+
+function requestAppsScriptProxy(url, label) {
   return new Promise((resolve, reject) => {
     const callbackName = `__geoQuestProxy_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const script = document.createElement("script");
-    const timeout = setTimeout(() => finish(new Error(`${label} 응답 시간이 초과되었습니다.`)), 12000);
+    const timeout = setTimeout(() => finish(new Error(`${label} 응답 시간이 초과되었습니다.`)), PROXY_TIMEOUT_MS);
 
     function finish(error, data) {
       clearTimeout(timeout);
       script.remove();
-      delete window[callbackName];
+      // A response that lands after the timeout still calls the global, so leave a no-op
+      // behind instead of letting it throw into the console.
+      window[callbackName] = () => {};
+      setTimeout(() => { delete window[callbackName]; }, 60000);
       if (error) reject(error);
       else resolve(data);
     }
@@ -1321,6 +1411,19 @@ function loadAppsScriptProxy(url, label = "Apps Script") {
     script.src = url.toString();
     document.head.appendChild(script);
   });
+}
+
+async function loadAppsScriptProxy(url, label = "Apps Script", { retries = 1 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await requestAppsScriptProxy(url, label);
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, PROXY_RETRY_DELAY_MS));
+    }
+  }
+  throw lastError;
 }
 
 function loadTourProxy(url) {
@@ -1596,11 +1699,12 @@ async function submitPermissionRequest(event) {
   button.textContent = "요청 중...";
   errorBox.classList.add("hidden");
   try {
+    // This one appends a roster row, so it is the single action that must not be retried.
     const result = await loadAppsScriptAction("requestStudentPermission", {
       email: state.user.email || "",
       name,
       studentId
-    });
+    }, "학생 명단", { retries: 0 });
     if (!result?.success) throw new Error(result?.message || "권한 요청에 실패했습니다.");
     if (result.status === "approved") {
       await handleSignedInUser(state.user);
@@ -1670,6 +1774,7 @@ async function logout() {
   state.addressOrigin = null;
   state.addressFetchedAt = 0;
   state.addressFailedAt = 0;
+  state.lastRenderAt = 0;
   state.owned.clear();
   state.ownedMissions.clear();
   state.legacyOwnedRegions.clear();
@@ -1706,7 +1811,7 @@ function bindEvents() {
     uploadSelectedFieldPhoto(event.target.files?.[0]);
   });
   $("quest-empty").addEventListener("click", (event) => {
-    if (event.target.closest(".empty-locate")) startLocationWatch();
+    if (event.target.closest(".empty-locate")) refreshCurrentLocation();
   });
   $("passport-stamp").addEventListener("click", () => navigateToView("map"));
   $("passport-region-select").addEventListener("change", (event) => {

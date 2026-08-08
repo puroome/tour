@@ -51,16 +51,16 @@ const GEO_QUEST_HEADERS = [
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('🧭 발자국')
-    .addItem('시트 형식 만들기', 'setupQuizSheet')
-    .addItem('db 장소목록 새로 만들기', 'buildTourPlaceCatalog')
+  // .addItem('시트 형식 만들기', 'setupQuizSheet')
+  // addItem('db 장소목록 새로 만들기', 'buildTourPlaceCatalog')
     .addItem('선택 장소를 퀴즈로 추가', 'addSelectedTourPlacesToQuizSheet')
-    .addItem('퀴즈 주소·지역 다시 채우기', 'repairQuizPlaceMetadata')
-    .addItem('퀴즈 빈 행 정리', 'compactQuizRows')
-    .addItem('퀴즈 데이터 검사', 'validateQuizSheet')
+  // .addItem('퀴즈 주소·지역 다시 채우기', 'repairQuizPlaceMetadata')
+  // .addItem('퀴즈 빈 행 정리', 'compactQuizRows')
+  // .addItem('퀴즈 데이터 검사', 'validateQuizSheet')
     .addItem('user 명단 → Firebase 동기화', 'syncStudentRosterToFirebase')
-    .addItem('현장 사진 Drive 연결 확인', 'authorizeFieldPhotoDrive')
-    .addSeparator()
-    .addItem('TourAPI 연결 확인', 'testTourApiConnection')
+  // .addItem('현장 사진 Drive 연결 확인', 'authorizeFieldPhotoDrive')
+  // .addSeparator()
+  // addItem('TourAPI 연결 확인', 'testTourApiConnection')
     .addToUi();
 }
 

@@ -10,10 +10,17 @@ export const APP_CONFIG = Object.freeze({
   // 카드는 20km 안에서 보이고, 활성화 반경은 시트의 반경m 값을 우선 사용합니다.
   questVisibilityRadiusMeters: 20000,
   questActivationRadiusMeters: 150,
+  // 휴대폰의 GPS 콜드 스타트는 30초 이상 걸리고, 조금 전에 잡은 좌표는 그대로 다시 씁니다.
   locationWatchOptions: {
     enableHighAccuracy: true,
-    timeout: 15000,
-    maximumAge: 10000
+    timeout: 30000,
+    maximumAge: 60000
+  },
+  // 위성 신호를 기다리는 동안 네트워크 기반 좌표로 화면을 먼저 채웁니다.
+  locationQuickFixOptions: {
+    enableHighAccuracy: false,
+    timeout: 10000,
+    maximumAge: 300000
   },
   maxAccuracyAllowanceMeters: 0,
   firebase: {
