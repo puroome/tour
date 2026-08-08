@@ -650,8 +650,9 @@ function renderMapRegionSummary() {
     .sort(([a], [b]) => themeOrder.get(a) - themeOrder.get(b))
     .map(([theme, themeMissions]) => {
       const themeCompleted = themeMissions.filter(isMissionOwned).length;
+      const themeCompletion = themeMissions.length ? themeCompleted / themeMissions.length * 100 : 0;
       return `<section class="map-theme-group">
-        <button type="button" class="map-theme-toggle" aria-expanded="false"><span>${escapeHTML(theme)}</span><small>${themeCompleted}/${themeMissions.length}</small></button>
+        <button type="button" class="map-theme-toggle" aria-expanded="false" style="--theme-completion:${themeCompletion}%"><span>${escapeHTML(theme)}</span><small>${themeCompleted}/${themeMissions.length}</small></button>
         <div class="map-theme-place-list" hidden>${themeMissions.map((mission) => {
           const owned = isMissionOwned(mission);
           const distance = state.position ? formatDistance(mission.displayDistance) : "위치 미확인";
