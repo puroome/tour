@@ -693,7 +693,7 @@ function renderMapRegionSummary() {
   }
   const missions = missionsForRegion(regionId);
   const completed = missions.filter(isMissionOwned).length;
-  $("map-region-progress-title").textContent = `${regionId} 탐방 기록`;
+  $("map-region-progress-title").textContent = `${regionId} 방문 기록`;
   $("map-region-progress-count").textContent = `${completed}/${missions.length}`;
   const themeOrder = new Map();
   missions.forEach((mission, index) => {
@@ -814,7 +814,7 @@ function resetMapZoom() {
   state.selectedMapRegion = null;
   state.mapBaseViewBox = BASE_MAP_VIEWBOX.slice();
   animateMapViewBox(BASE_MAP_VIEWBOX);
-  $("map-title").textContent = "정복 지도";
+  $("map-title").textContent = "방문 지도";
   $("map-back-button").classList.add("hidden");
   updateMapState({ renderSummary: true });
 }
@@ -1530,7 +1530,7 @@ function renderQuestList(items) {
         <span class="range-badge${owned ? " done" : ""}${answered && !hasPhoto ? " photo-pending" : ""}">${item.inRange ? (owned ? "● 탐방 완료" : answered ? "● 사진 업로드 대기" : "● 도전 가능") : `${activationDistance} 안에서 활성화`}</span>
       </div>
       <h3><button type="button" class="place-name-button">${escapeHTML(placeLabel(item))}</button></h3>
-      <p>${escapeHTML(item.regionId)} · ${owned ? "탐방 완료" : answered ? "정답 완료 · 사진 업로드 대기" : "미획득 탐방지"}</p>
+      <p>${escapeHTML(item.regionId)} · ${owned ? "탐방 완료" : answered ? "정답 완료 · 사진 업로드 대기" : "미획득 장소"}</p>
       ${actionMarkup}`;
     article.querySelector(".place-name-button").addEventListener("click", () => showPlaceDescription(item));
     if (owned) {
@@ -1647,7 +1647,7 @@ function updateUserUI(permission) {
 }
 
 async function enterApp(permission) {
-  setLoading("정복 기록을 불러오는 중...");
+  setLoading("방문 기록을 불러오는 중...");
   await Promise.all([loadProgress(), refreshQuizzes()]);
   const migratedProgress = migrateLegacyProgress();
   if (migratedProgress) await saveProgress();
@@ -1874,7 +1874,7 @@ function bindEvents() {
     event.preventDefault();
   }, { passive: false });
   $("app-refresh-button").addEventListener("click", () => {
-    if (confirm("앱을 완전히 새로 불러올까요?\n탐방 기록은 지워지지 않습니다.")) hardRefreshApp();
+    if (confirm("앱을 완전히 새로 불러올까요?\n방문 기록은 지워지지 않습니다.")) hardRefreshApp();
   });
   document.querySelectorAll("[data-view]").forEach((link) => {
     link.addEventListener("click", (event) => {
