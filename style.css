@@ -529,7 +529,9 @@ body { background: #dfe5df; }
   --passport-foil: #eef0fb;
   position: relative;
   width: 100%;
-  min-height: 100%;
+  /* Keep the card compact: the freed 48px is taken from the flexible body area,
+     halving the otherwise empty gap above the location status. */
+  min-height: calc(100% - 48px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -619,13 +621,15 @@ body { background: #dfe5df; }
 }
 
 .passport-profile {
-  position: relative;
+  position: absolute;
   z-index: 1;
+  top: 76px;
+  left: 26px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 11px;
-  padding: 2px 26px 0;
+  padding: 0;
 }
 
 .passport-profile > span:first-child { display: grid; }
@@ -658,9 +662,9 @@ body { background: #dfe5df; }
   min-height: 340px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 25px;
-  padding: 24px 34px 20px;
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 58px 34px 20px;
 }
 
 .passport-stamp {
@@ -732,8 +736,10 @@ body { background: #dfe5df; }
   background: rgba(255, 253, 247, .88);
   box-shadow: 0 8px 24px rgba(23, 63, 53, .07);
 }
-.quest-screen .quest-panel,
-.map-screen .map-card { min-height: 100%; }
+.quest-screen .quest-panel { min-height: 100%; }
+/* The map screen has 10px more bottom padding than the passport screen, so its
+   adjustment is offset by 10px to keep both cards exactly the same height. */
+.map-screen .map-card { min-height: calc(100% - 38px); }
 
 .section-heading,
 .section-heading.compact {
@@ -941,12 +947,18 @@ body { background: #dfe5df; }
 .photo-upload-input { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .photo-upload-frame { position: fixed; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
 
-.passport-region-picker { position: relative; z-index: 1; width: 100%; display: grid; gap: 5px; }
-.passport-region-picker > span { color: rgba(255, 248, 232, .72); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.passport-region-picker { position: relative; z-index: 1; width: 100%; }
 .passport-region-picker select { width: 100%; min-height: 36px; padding: 7px 32px 7px 11px; border: 1px solid rgba(255, 255, 255, .25); border-radius: 10px; color: #fff8e8; background: rgba(0, 0, 0, .16); font: inherit; font-size: 12px; }
 .passport-region-picker option { color: var(--ink); background: #fffdf7; }
 .passport-stat-layout { width: 100%; display: flex; align-items: center; justify-content: center; transition: grid-template-columns .3s ease, gap .3s ease; }
-.passport-overall-stat { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 25px; transition: transform .3s ease; }
+.passport-overall-stat { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 9px; transition: transform .3s ease; }
+.passport-stat-layout .passport-stamp { width: 104px; height: 104px; }
+.passport-stat-layout .passport-stamp span { font-size: 39px; }
+.passport-stat-layout .passport-stamp small { font-size: 9px; }
+.passport-stat-layout .passport-detail strong { margin: 1px 0; font-size: 30px; }
+.passport-stat-layout .passport-detail p,
+.passport-stat-layout .passport-detail small { font-size: 8px; }
+.passport-stat-layout .passport-detail .progress-track { height: 4px; margin: 5px 0 6px; }
 .passport-theme-stats { min-width: 0; padding: 12px; border: 1px solid rgba(255, 255, 255, .16); border-radius: 15px; background: rgba(0, 0, 0, .12); }
 .passport-theme-heading { margin-bottom: 10px; }
 .passport-theme-heading small { color: var(--orange-soft); font-size: 9px; font-weight: 800; letter-spacing: .08em; }

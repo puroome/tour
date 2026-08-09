@@ -860,10 +860,14 @@ function populatePassportRegionSelect() {
   const select = $("passport-region-select");
   const regions = uniqueRegions(state.quizzes).sort((a, b) => a.localeCompare(b, "ko"));
   if (!regions.includes(state.passportRegion)) state.passportRegion = "";
-  select.innerHTML = `<option value="">전체 장소</option>${regions.map((region) => (
-    `<option value="${escapeHTML(region)}">${escapeHTML(region)}</option>`
+  select.innerHTML = `<option value="">전체 지역</option>${regions.map((region) => (
+    `<option value="${escapeHTML(region)}">${escapeHTML(displayPassportRegionName(region))}</option>`
   )).join("")}`;
   select.value = state.passportRegion;
+}
+
+function displayPassportRegionName(region) {
+  return region === "광주광역시" ? "광주특별시" : region;
 }
 
 function renderPassportThemeStats() {
@@ -973,7 +977,6 @@ function shouldRerenderForPosition(previous) {
 
 function handleLocation(position) {
   const previous = state.position;
-  const isFirstFix = !previous;
   state.position = positionFromGeolocation(position);
   const accuracy = Math.round(state.position.accuracy || 0);
   const addressDistance = state.addressOrigin ? distanceMeters(state.position, state.addressOrigin) : Number.POSITIVE_INFINITY;
@@ -998,7 +1001,6 @@ function handleLocation(position) {
     state.locationRefreshRequested = false;
     showToast("현재 위치를 새로 확인했습니다.");
   }
-  if (isFirstFix && state.activeView === "passport") navigateToView("quests");
 }
 
 function handleLocationError(error) {
@@ -1654,10 +1656,9 @@ async function enterApp(permission) {
   updateProgressUI();
   showScreen("app");
   startLocationWatch();
-  const requestedView = location.hash.slice(1);
-  const initialView = VIEW_IDS.has(requestedView) ? requestedView : "passport";
-  if (location.hash !== `#${initialView}`) {
-    history.replaceState({ view: initialView }, "", `${location.pathname}${location.search}#${initialView}`);
+  const initialView = "passport";
+  if (location.hash !== "#passport") {
+    history.replaceState({ view: initialView }, "", `${location.pathname}${location.search}#passport`);
   }
   switchView(initialView);
   if (state.preview) showToast("로컬 미리보기 모드입니다.");
@@ -1848,7 +1849,11 @@ function bindEvents() {
   $("quest-empty").addEventListener("click", (event) => {
     if (event.target.closest(".empty-locate")) refreshCurrentLocation();
   });
-  $("passport-stamp").addEventListener("click", () => navigateToView("map"));
+  $("passport-stamp").addEventListener("click", () => {
+    navigateToView("map");
+    if (state.passportRegion) zoomToMapRegion(state.passportRegion);
+    else resetMapZoom();
+  });
   $("passport-region-select").addEventListener("change", (event) => {
     state.passportRegion = event.target.value;
     updateProgressUI();
