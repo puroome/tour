@@ -19,9 +19,10 @@ import os
 import re
 from collections import defaultdict
 
-from shapely import set_precision, union_all
+from shapely import coverage_invalid_edges, coverage_simplify, set_precision, union_all
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, shape
+from shapely.strtree import STRtree
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TOOLS)
@@ -45,15 +46,19 @@ DONG_TOLERANCE = float(os.environ.get("DONG_TOLERANCE", 0.22))
 # 한 줄로 그려진다. 1자리 = 0.1단위 ≈ 76m.
 DECIMALS = 1
 GRID = 10 ** -DECIMALS
-# 이웃한 읍·면·동을 따로 단순화하면 맞닿은 변이 어긋나 사이에 실틈이 남는다(서울 기준 면적의
-# 3%). 각 폴리곤을 이만큼 부풀려 서로 겹치게 해서 메운다. 모서리를 각지게(mitre) 늘려야
-# 둥근 이음매로 꼭짓점이 불어나지 않는다.
-SEAM_CLOSE = float(os.environ.get("SEAM_CLOSE", 0.07))
+# 바다로 둘러싸여 어느 이웃과도 변을 맞대지 않는 조각은 덮개에서 떼어내 따로 줄인다(shrink).
+# coverage_simplify 는 덮개 전체에 같은 강도를 걸어서, 독도(0.16·0.11제곱단위)처럼 작은
+# 섬을 절반 아래로 깎아 시·군 칠에서 티끌로 걸러지게 만든다. 떼어낸 섬은 공유하는 변이
+# 없으므로 따로 줄여도 경계가 어긋날 일이 없다. 이보다 큰 조각은 그냥 덮개에 둔다.
+ISLAND_MAX_AREA = float(os.environ.get("ISLAND_MAX_AREA", 20.0))
 # 신안군 앞바다처럼 섬이 수천 개인 곳은 바위 하나까지 담으면 용량 대부분을 섬이 차지한다.
 # 읍·면·동은 실제로 갈 수 있는 곳이라 그대로 두고, 칠할 면과 경계선에서만 걷어낸다.
 # 1제곱단위 ≈ 0.58㎢.
-# 독도(동도 0.095㎢·서도 0.061㎢)가 시·군 칠에도 남도록 문턱을 그 아래로 잡았다.
-MUNI_MIN_AREA = float(os.environ.get("MUNI_MIN_AREA", 0.09))
+# 독도(동도 0.095㎢·서도 0.061㎢)가 시·군 칠에도 남도록 문턱을 그 아래로 잡았다. 단순화를
+# 거치고 나면 동도 0.155·서도 0.095제곱단위라 여유가 얼마 없다. 문턱을 0.09까지 올리면
+# 서도가 5% 차이로 겨우 살아남고, 강도를 조금만 건드려도 사라진다. 0.06이면 그 걱정이 없고
+# 섬이 시·군 칠에도 남아 읍·면·동만 덩그러니 뜨는 자리가 줄어든다. 값은 12KB 남짓이다.
+MUNI_MIN_AREA = float(os.environ.get("MUNI_MIN_AREA", 0.06))
 PROVINCE_MIN_AREA = float(os.environ.get("PROVINCE_MIN_AREA", 6.0))
 # 구멍을 지우는 문턱. 가장 작은 시·군인 과천시(35.9㎢ ≈ 62제곱단위)보다 훨씬 작게 잡아,
 # 진짜 둘러싸인 지역은 남기고 단순화가 남긴 실틈만 메운다.
@@ -70,6 +75,10 @@ MERGED_METRO_SIDO = "12"
 MERGED_METRO_NAME = "광주광역시"
 # 같은 이름의 군이 두 도에 있어 지도 키에 도 이름을 붙여 구분한다.
 AMBIGUOUS = {"고성군": {"강원특별자치도": "고성군(강원)", "경상남도": "고성군(경남)"}}
+# 광역시는 자치구·군 하나하나가 시·군만 한 크기라, 읍·면·동만 보여주면 어디인지 알기 어렵다
+# ("서울특별시 한남동"). 그래서 광역시에 한해 자치구 이름을 함께 담는다. 도(道) 안의
+# 창원시·수원시 같은 곳은 시 이름만으로 충분해서 담지 않는다.
+DISTRICT_KEYS = set(METRO.values()) | {MERGED_METRO_NAME}
 
 
 def project(lon, lat):
@@ -99,6 +108,18 @@ def muni_key(props):
     matched = re.match(r"^(.+?[시군])", name)
     key = matched.group(1) if matched else name
     return AMBIGUOUS.get(key, {}).get(province_of(props), key)
+
+
+def district_of(props, key):
+    """읍·면·동과 함께 담을 자치구·군 이름. 담지 않을 곳은 빈 문자열.
+
+    세종특별자치시는 자치구가 없는데도 원본이 sggnm 을 "세종시"로 채워 둬서, 그대로 쓰면
+    "세종특별자치시 세종시 조치원읍"이 된다. 구·군으로 끝나는 것만 받아 걸러낸다.
+    """
+    name = props["sggnm"]
+    if key in DISTRICT_KEYS and name.endswith(("구", "군")):
+        return name
+    return ""
 
 
 def province_of(props):
@@ -133,35 +154,30 @@ def vertex_count(path):
     return len(re.findall(r"-?\d+\.\d+", path)) // 2
 
 
-def shrink(geometry, tolerance):
-    """조각별로 단순화한다. 본체에서 떨어진 작은 섬은 강도를 낮춰 원형을 지킨다.
+def shrink_islands(polygons, tolerance):
+    """떼어낸 섬을 조각 크기에 맞춰 단순화한다.
 
     독도(약 0.19㎢)처럼 작은 섬을 본체와 같은 강도로 줄이면 삼각형만 남고 면적이 사라져,
-    시·군을 칠할 때 티끌로 걸러진다. 도심의 작은 동까지 같이 걸리지 않도록, 한 지역에서
-    가장 큰 조각(본체)은 언제나 기본 강도로 줄인다.
+    시·군을 칠할 때 티끌로 걸러진다. 작을수록 강도를 낮춰 원형을 지킨다. 이 조각들은 어느
+    이웃과도 변을 맞대지 않으므로(split_islands 참고) 따로 줄여도 경계가 어긋나지 않는다.
     """
-    parts = [p for p in getattr(geometry, "geoms", [geometry]) if not p.is_empty]
-    if not parts:
-        return geometry
-    main = max(parts, key=lambda p: p.area)
-    polygons = []
-    for polygon in parts:
-        scale = 1.0 if polygon is main or polygon.area >= 20 else max(.05, polygon.area / 20)
+    kept = []
+    for polygon in polygons:
+        scale = max(.05, min(1.0, polygon.area / ISLAND_MAX_AREA))
         small = polygon.simplify(tolerance * scale)
         if small.is_empty or not small.is_valid:
             small = polygon
-        polygons.extend(p for p in getattr(small, "geoms", [small]) if not p.is_empty)
-    if not polygons:
-        return geometry
-    return polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
+        kept.extend(parts(small))
+    return kept
 
 
 def drop_specks(geometry, min_area, min_hole=HOLE_MIN_AREA):
     """작은 섬과 구멍을 걷어낸다. 가장 큰 조각은 아무리 작아도 남긴다.
 
-    구멍은 섬보다 훨씬 크게 잘라낸다. 읍·면·동을 따로 단순화한 탓에 이웃 사이에 남은 실틈이
-    시·군을 합칠 때 구멍으로 굳는데, 그대로 두면 서울 한복판에 바탕색이 비친다. 완주군 안의
-    전주시처럼 진짜로 둘러싼 구멍은 이 문턱보다 훨씬 넓어서 그대로 남는다.
+    구멍은 섬보다 훨씬 크게 잘라낸다. 원본에서 변이 맞물리지 않는 자리(heal_overlaps 참고)와
+    새만금처럼 어느 행정동에도 안 들어간 땅이 시·군을 합칠 때 구멍으로 남는데, 그대로 두면
+    지도 한복판에 바탕색이 비친다. 완주군 안의 전주시처럼 진짜로 둘러싼 구멍은 이 문턱보다
+    훨씬 넓어서 그대로 남는다.
     """
     polygons = [p for p in getattr(geometry, "geoms", [geometry]) if not p.is_empty]
     if not polygons:
@@ -177,11 +193,64 @@ def merge(geometries):
     return united if united.is_valid else united.buffer(0)
 
 
+def parts(geometry):
+    return [p for p in getattr(geometry, "geoms", [geometry]) if not p.is_empty and p.area > 0]
+
+
+def rebuild(polygons, fallback):
+    if not polygons:
+        return fallback
+    return polygons[0] if len(polygons) == 1 else MultiPolygon(polygons)
+
+
+def heal_overlaps(geometries):
+    """원본에서 서로 겹치는 읍·면·동을 정리한다.
+
+    coverage_simplify 는 입력이 빈틈도 겹침도 없는 덮개라고 믿고 동작한다. 통계청 원본은
+    전국에서 서른 개 남짓만 국지적으로 어긋나 있는데, 그 자리만 뒤엣것에서 앞엣것을 빼서
+    맞춰 둔다. 전부 훑으면 오래 걸리므로 어긋난다고 지목된 것들끼리만 본다.
+    """
+    flagged = [i for i, edge in enumerate(coverage_invalid_edges(geometries, gap_width=0.0))
+               if edge is not None and not edge.is_empty]
+    if not flagged:
+        return geometries, 0
+    healed = list(geometries)
+    for position, index in enumerate(flagged):
+        earlier = [healed[j] for j in flagged[:position] if healed[j].intersects(healed[index])]
+        if not earlier:
+            continue
+        trimmed = healed[index].difference(union_all(earlier))
+        if not trimmed.is_empty and trimmed.geom_type in ("Polygon", "MultiPolygon"):
+            healed[index] = trimmed if trimmed.is_valid else trimmed.buffer(0)
+    return healed, len(flagged)
+
+
+def split_islands(geometries):
+    """어느 이웃과도 맞닿지 않는 작은 조각을 덮개에서 떼어낸다.
+
+    떼어낸 조각과, 그것을 뺀 나머지를 함께 돌려준다. 나머지가 통째로 비는 읍·면·동
+    (백령면처럼 섬만으로 이뤄진 곳)도 있어서, 덮개에 넣을 때는 빈 자리를 건너뛴다.
+    """
+    tree = STRtree(geometries)
+    mainland, islands = [], []
+    for index, geometry in enumerate(geometries):
+        keep, apart = [], []
+        for piece in parts(geometry):
+            if piece.area >= ISLAND_MAX_AREA:
+                keep.append(piece)
+                continue
+            touching = [j for j in tree.query(piece) if j != index and geometries[j].intersects(piece)]
+            (apart if not touching else keep).append(piece)
+        mainland.append(rebuild(keep, None))
+        islands.append(apart)
+    return mainland, islands
+
+
 def main():
     with io.open(SOURCE, encoding="utf-8") as fp:
         source = json.load(fp)
 
-    by_muni = defaultdict(list)
+    entries = []
     provinces = {}
     for feature in source["features"]:
         props = feature["properties"]
@@ -196,41 +265,53 @@ def main():
             moved = moved.buffer(0)
         key = muni_key(props)
         provinces[key] = province_of(props)
-        by_muni[key].append((props["adm_cd"], props["adm_nm"].split()[-1], moved))
+        entries.append((key, props["adm_cd"], props["adm_nm"].split()[-1], district_of(props, key), moved))
 
-    print("행정동 %d개 / 시·군 %d개" % (sum(len(v) for v in by_muni.values()), len(by_muni)))
+    entries.sort(key=lambda row: (row[0], row[1]))
+    print("행정동 %d개 / 시·군 %d개" % (len(entries), len(provinces)))
 
-    # 읍·면·동을 먼저 단순화하고, 그것들을 합쳐 시·군 외곽선을 만든다. 시·군을 따로 단순화하면
-    # 읍·면·동이 시·군 밖으로 삐져나오는데, 이렇게 하면 그런 일이 생기지 않는다.
-    dongs = {}
+    # 전국 읍·면·동을 한 벌의 덮개로 보고 한꺼번에 줄인다. coverage_simplify 는 맞닿은 변을
+    # 양쪽이 똑같이 공유한 채로 줄여서, 이웃 사이에 실틈도 겹침도 남기지 않는다. 폴리곤마다
+    # 따로 줄인 뒤 부풀려 메우던 예전 방식은 시·군 경계 바깥으로도 부풀어서, 이웃 시·군과
+    # 0.14단위(약 108m)씩 겹쳐 확대하면 경계가 두 줄로 보였다.
+    shapes = [row[4] for row in entries]
+    shapes, flagged = heal_overlaps(shapes)
+    # 겹침은 위에서 잘라냈지만, 한쪽에만 꼭짓점이 있어 변이 맞물리지 않는 자리는 남는다.
+    # 그런 곳은 이웃과 공유하는 변이 아니라 각자의 바깥 경계로 취급돼 수십 미터짜리 틈이
+    # 생긴다. 전국에서 몇 자리뿐이라 그대로 두고, 몇 개나 남았는지만 적어 둔다.
+    left = sum(1 for edge in coverage_invalid_edges(shapes, gap_width=0.0)
+               if edge is not None and not edge.is_empty)
+    print("원본에서 어긋난 읍·면·동 %d개 중 %d개 정리, %d개는 변이 맞물리지 않아 남김"
+          % (flagged, flagged - left, left))
+
+    mainland, islands = split_islands(shapes)
+    filled = [index for index, geometry in enumerate(mainland) if geometry is not None]
+    simplified = list(coverage_simplify([mainland[i] for i in filled], DONG_TOLERANCE,
+                                        simplify_boundary=True))
+    reduced = [None] * len(mainland)
+    for position, index in enumerate(filled):
+        reduced[index] = simplified[position]
+    print("떼어낸 섬 %d개 / 덮개에 넣은 읍·면·동 %d개"
+          % (sum(len(v) for v in islands), len(filled)))
+
+    dongs = defaultdict(list)
     munis = {}
-    for key, items in by_muni.items():
-        placed = []
-        dongs[key] = []
-        for code, name, geometry in sorted(items):
-            small = shrink(geometry, DONG_TOLERANCE)
-            if not small.is_valid:
-                small = small.buffer(0)
-            if small.is_empty:
-                small = geometry
-            if SEAM_CLOSE:
-                small = small.buffer(SEAM_CLOSE, join_style="mitre", mitre_limit=2.0)
-                # 부풀린 만큼 이웃과 겹치는데, 겹친 채로 두면 폴리곤마다 제 테두리를 그려서
-                # 경계가 두 줄로 보인다. 앞서 자리를 잡은 이웃과 겹치는 부분을 잘라내면
-                # 서로 같은 변을 공유하게 되어 선이 한 줄로 겹쳐 그려진다.
-                overlaps = [other for other in placed if small.intersects(other)]
-                if overlaps:
-                    trimmed = small.difference(union_all(overlaps, grid_size=GRID), grid_size=GRID)
-                    if not trimmed.is_empty and trimmed.geom_type in ("Polygon", "MultiPolygon"):
-                        small = trimmed if trimmed.is_valid else trimmed.buffer(0)
-            snapped = set_precision(small, GRID)
-            if not snapped.is_empty and snapped.geom_type in ("Polygon", "MultiPolygon"):
-                small = snapped
-            placed.append(small)
-            dongs[key].append((code, name, small))
+    for index, (key, code, name, district, original) in enumerate(entries):
+        # 떼어낸 섬은 조각 크기에 맞춰 따로 줄인다. 이 강도까지 덮개에 걸면 독도가 사라진다.
+        pieces = shrink_islands(islands[index], DONG_TOLERANCE)
+        pieces.extend(parts(reduced[index]) if reduced[index] is not None else [])
+        small = rebuild(pieces, original)
+        if not small.is_valid:
+            small = small.buffer(0)
+        snapped = set_precision(small, GRID)
+        if not snapped.is_empty and snapped.geom_type in ("Polygon", "MultiPolygon"):
+            small = snapped
+        dongs[key].append((code, name, district, small))
+
+    for key, items in dongs.items():
         # 읍·면·동을 합친 그대로 둔다. 여기서 한 번 더 단순화하면 시·군 선이 읍·면·동
         # 가장자리에서 비껴나, 확대했을 때 바깥 경계가 두 줄로 보인다.
-        munis[key] = set_precision(drop_specks(merge(placed), MUNI_MIN_AREA), GRID)
+        munis[key] = set_precision(drop_specks(merge([row[-1] for row in items]), MUNI_MIN_AREA), GRID)
 
     old_path = os.path.join(REPO, "js", "map-data.json")
     old = json.load(io.open(old_path, encoding="utf-8")) if os.path.exists(old_path) else {"MUNIS": {}, "PROVINCES": {}}
@@ -281,10 +362,12 @@ def main():
     for index, key in enumerate(sorted(dongs), start=1):
         chunks[key] = index
         payload = {}
-        for code, name, geometry in sorted(dongs[key]):
+        for code, name, district, geometry in sorted(dongs[key]):
             path = to_path(shift(geometry))
             dong_vertices += vertex_count(path)
             payload[code] = {"n": name, "d": path}
+            if district:
+                payload[code]["g"] = district
         with io.open(os.path.join(out_dir, "%d.json" % index), "w", encoding="utf-8") as fp:
             json.dump(payload, fp, ensure_ascii=False, separators=(",", ":"))
 
