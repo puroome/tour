@@ -1487,7 +1487,7 @@ function renderQuestList(items) {
   state.visibleMissions = items;
   updateQuestHeadingAddress();
   $("quest-count-badge").textContent = String(items.length);
-  $("quest-count-badge").setAttribute("aria-label", `주변 퀴즈 ${items.length}개`);
+  $("quest-count-badge").setAttribute("aria-label", `20km 주변 퀴즈 ${items.length}개`);
 
   if (!state.quizzes.length) {
     list.classList.add("hidden");
