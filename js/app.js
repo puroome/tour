@@ -1731,17 +1731,17 @@ function showPermissionStatus(status, user, detail = "") {
     pending: {
       icon: "⏳",
       title: "승인 대기 중",
-      message: "Jame의 승인 후 사용할 수 있어요."
+      message: "James의 승인 후 사용할 수 있어요."
     },
     denied: {
       icon: "🔒",
       title: "접근이 제한되었어요.",
-      message: "승인이 거부되어있어요. Jame에게 문의하세요."
+      message: "승인이 거부되어있어요. James에게 문의하세요."
     },
     awaiting_sync: {
       icon: "↻",
       title: "승인 대기 중",
-      message: "Jame의 승인 후 사용할 수 있어요."
+      message: "James의 승인 후 사용할 수 있어요."
     },
     error: {
       icon: "⚠️",
