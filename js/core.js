@@ -8,8 +8,8 @@ const MAP_PROJECTION = Object.freeze({
   originLatitude: 36,
   originLongitude: 127.5,
   scale: 8230,
-  offsetX: 335.22,
-  offsetY: 384.23
+  offsetX: 335.3,
+  offsetY: 384.3
 });
 const SVG_RING_CACHE = new WeakMap();
 
