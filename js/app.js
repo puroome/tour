@@ -1285,7 +1285,7 @@ function showPlaceDescription(place) {
     </div>
     <div class="place-description-body">
       <p>${escapeHTML(description || "관리자가 아직 장소 설명을 등록하지 않았습니다.")}</p>
-      ${photoUrl ? `<section class="place-photo"><h3>현장 사진</h3><img src="${escapeHTML(photoUrl)}" alt="${escapeHTML(placeLabel(place))} 현장 사진" loading="lazy"></section>` : ""}
+      ${photoUrl ? `<section class="place-photo"><h3>현장 사진</h3><img src="${escapeHTML(photoUrl)}" alt="" loading="eager" decoding="async" referrerpolicy="no-referrer"></section>` : ""}
     </div>`;
   $("place-description-dialog").showModal();
 }
@@ -1297,10 +1297,10 @@ function photoUploadForMission(mission) {
 function photoDisplayUrl(photo) {
   const storedUrl = String(photo?.url || "").trim();
   const storedId = String(photo?.fileId || "").trim();
-  if (storedId) return `https://drive.google.com/thumbnail?id=${encodeURIComponent(storedId)}&sz=w1600`;
+  if (storedId) return `https://lh3.googleusercontent.com/d/${encodeURIComponent(storedId)}=w1600`;
   try {
     const fileId = new URL(storedUrl).searchParams.get("id");
-    if (fileId) return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1600`;
+    if (fileId) return `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileId)}=w1600`;
   } catch {
     // Keep the original URL for local preview object URLs and unexpected legacy formats.
   }
