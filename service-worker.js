@@ -1,4 +1,4 @@
-const CACHE_NAME = "geo-quest-v26";
+const CACHE_NAME = "geo-quest-v29";
 const APP_SHELL = [
   "./",
   "./index.html",

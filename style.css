@@ -11,6 +11,10 @@
   --orange-soft: #f8d2b9;
   --gold: #e7b84d;
   --red: #b95043;
+  /* 지도 칠 두 단계. --red 를 흰색에 섞어 만든 파스텔이라 같은 계열로 읽히고, 옅은 쪽과
+     진한 쪽이 한눈에 구별될 만큼은 벌려 뒀다. */
+  --quiz-soft: #f4d5cf;
+  --quiz-done: #d9948a;
   --blue: #2563a8;
   --shadow: 0 22px 60px rgba(35, 57, 49, .12);
   --radius: 24px;
@@ -319,11 +323,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .heading-address { transition: color .18s ease, font-weight .18s ease, text-shadow .18s ease; }
 .heading-address:hover { color: var(--mint-deep); font-weight: 600; text-shadow: 0 1px 7px rgba(23, 63, 53, .2); }
 .heading-address:focus-visible { color: var(--mint-deep); font-weight: 600; outline: 2px solid rgba(47, 122, 96, .42); outline-offset: 3px; border-radius: 4px; }
-.legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--ink-soft); font-size: 11px; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { width: 11px; height: 11px; border-radius: 3px; }
-.legend-owned { background: var(--red); }
-.legend-nearby { background: var(--orange); }
 .count-badge { min-width: 28px; height: 28px; display: grid; place-items: center; padding: 0 9px; color: var(--mint-deep); border-radius: 20px; background: #dcece3; font-size: 12px; font-weight: 800; }
 
 /* The map owns every touch inside it. Anything looser (pan-y) lets the browser claim the
@@ -332,14 +331,13 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d8ded7; border-radius: 19px; background: #eaf0eb; touch-action: none; }
 .map-stage::before { content: ""; position: absolute; inset: 0; opacity: .52; background-image: linear-gradient(rgba(47,122,96,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(47,122,96,.07) 1px, transparent 1px); background-size: 28px 28px; }
 #korea-map { position: relative; width: 100%; height: 100%; padding: 18px; filter: drop-shadow(0 10px 12px rgba(23,63,53,.12)); }
-#korea-map .muni { fill: #f9f6ec; stroke: #bacbc2; stroke-width: .72; vector-effect: non-scaling-stroke; transition: fill .25s, opacity .25s, filter .25s; }
-#korea-map .muni:hover { fill: #d7e9df; }
-#korea-map .muni.registered { fill: #edf4ee; }
-#korea-map .muni.owned { fill: var(--red); stroke: #fff; }
-#korea-map .muni.nearby { fill: var(--orange); stroke: #fff; filter: drop-shadow(0 0 6px rgba(237,139,82,.8)); animation: pulse-map 1.45s ease-in-out infinite alternate; }
-#korea-map .muni.owned.nearby { fill: var(--red); }
+/* 칠은 세 단계뿐이다: 탐방지가 없으면 흰색, 시트에 등록된 탐방지가 있으면 옅은 파스텔
+   빨강, 그 지역 탐방지를 모두 마치면 진한 파스텔 빨강. 시·군과 읍·면·동에 같은 규칙을
+   쓴다. 테두리 색은 어느 단계에서나 같아야 경계선이 한 줄로 이어져 보인다. */
+#korea-map .muni { fill: #fff; stroke: #bacbc2; stroke-width: .72; vector-effect: non-scaling-stroke; transition: fill .25s, opacity .25s, filter .25s; }
+#korea-map .muni.registered { fill: var(--quiz-soft); }
+#korea-map .muni.owned { fill: var(--quiz-done); }
 #korea-map .prov-border { fill: none; stroke: #78998b; stroke-width: 1.25; pointer-events: none; vector-effect: non-scaling-stroke; }
-@keyframes pulse-map { to { opacity: .72; } }
 .map-caption { position: absolute; left: 14px; bottom: 12px; padding: 6px 9px; border-radius: 8px; background: rgba(255,253,247,.84); color: #748780; font-size: 9px; }
 .map-tooltip { position: fixed; z-index: 30; pointer-events: none; padding: 7px 10px; border-radius: 9px; color: #fff; background: rgba(23,63,53,.92); box-shadow: 0 8px 20px rgba(23,63,53,.18); font-size: 11px; }
 
@@ -753,10 +751,11 @@ body { background: #dfe5df; }
   margin-bottom: 14px;
 }
 .section-heading h2 { font-size: 23px; }
-.legend { gap: 9px; font-size: 10px; }
 
 .map-heading-title { min-width: 0; display: flex; align-items: center; gap: 7px; }
-.map-heading-title h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 지역명은 "전남 화순군 사평면"까지 이어지므로, 다른 화면 제목(위 .section-heading h2 가
+   23px 로 덮어쓴다)의 70%로 줄여 잡는다. 그래도 넘치면 ellipsis 가 받는다. */
+.map-heading-title h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
 .map-back-button { width: 32px; height: 32px; flex: 0 0 auto; padding: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--ink); background: var(--card); font-size: 17px; }
 
 .empty-state {
@@ -799,26 +798,27 @@ body { background: #dfe5df; }
 #korea-map .muni:focus { outline: none; }
 #korea-map .muni:focus-visible { outline: none; stroke: var(--red); stroke-width: 2.6; }
 #korea-map .muni.map-selected { stroke: var(--red); stroke-width: 2.6; }
-#korea-map .muni.owned.map-selected { stroke: #fff; stroke-width: 2.6; }
-/* 읍·면·동은 시·군 칠 위에 반투명하게 얹혀 아래 색이 비치고, 등록된 곳만 따로 칠한다. */
-#korea-map .dong { fill: rgba(255,255,255,.14); stroke: #9fb6ab; stroke-width: .5; vector-effect: non-scaling-stroke; transition: fill .25s; }
-#korea-map .dong.registered { fill: rgba(255,255,255,.55); cursor: pointer; }
-#korea-map .dong.registered:hover { fill: #d7e9df; }
-#korea-map .dong.owned { fill: var(--red); stroke: #fff; }
+/* 읍·면·동은 아래 시·군 칠을 가리고 제 색을 낸다. 반투명이면 시·군 색이 비쳐 섞여서,
+   이 구역에 탐방지가 있는지 없는지가 색만으로 안 읽힌다. */
+#korea-map .dong { fill: #fff; stroke: #9fb6ab; stroke-width: .5; vector-effect: non-scaling-stroke; transition: fill .25s; }
+#korea-map .dong.registered { fill: var(--quiz-soft); cursor: pointer; }
+#korea-map .dong.owned { fill: var(--quiz-done); }
 #korea-map .dong:focus { outline: none; }
 #korea-map .dong:focus-visible,
 #korea-map .dong.dong-selected { outline: none; stroke: var(--red); stroke-width: 2.2; }
-#korea-map .dong.owned.dong-selected { stroke: #fff; stroke-width: 2.2; }
-#korea-map .quiz-dot { fill: #fff8e8; stroke: var(--orange); stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 3px rgba(23, 63, 53, .35)); cursor: pointer; }
+/* 고른 구역의 테두리. 읍·면·동 칠보다 위에 그려야 굵기가 깎이지 않는다. */
+#korea-map .selected-outline { fill: none; stroke: var(--red); stroke-width: 2.6; pointer-events: none; vector-effect: non-scaling-stroke; }
+#korea-map .selected-outline.dong-level { stroke-width: 2.2; }
+#korea-map .quiz-dot { fill: #fff8e8; stroke: var(--orange); stroke-width: 1; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 3px rgba(23, 63, 53, .35)); cursor: pointer; }
 #korea-map .quiz-dot.completed { fill: var(--red); stroke: #fff; }
 /* The default focus ring is a rounded box around the dot's bounding area and covers
    neighbouring dots, so signal the selected dot with a shimmering gold rim instead. */
 #korea-map .quiz-dot:focus { outline: none; }
 #korea-map .quiz-dot.dot-active,
-#korea-map .quiz-dot:focus-visible { outline: none; stroke: #e6b422; stroke-width: 3.4; animation: dot-sparkle .42s ease-in-out infinite alternate; }
+#korea-map .quiz-dot:focus-visible { outline: none; stroke: #e6b422; stroke-width: 1.7; animation: dot-sparkle .42s ease-in-out infinite alternate; }
 @keyframes dot-sparkle {
-  from { stroke: #c8901a; stroke-width: 2.8; filter: drop-shadow(0 0 1px rgba(200, 144, 26, .5)); }
-  to { stroke: #fff2c0; stroke-width: 5.2; filter: drop-shadow(0 0 9px rgba(255, 208, 92, 1)) drop-shadow(0 0 17px rgba(255, 190, 40, .8)); }
+  from { stroke: #c8901a; stroke-width: 1.4; filter: drop-shadow(0 0 1px rgba(200, 144, 26, .5)); }
+  to { stroke: #fff2c0; stroke-width: 2.6; filter: drop-shadow(0 0 9px rgba(255, 208, 92, 1)) drop-shadow(0 0 17px rgba(255, 190, 40, .8)); }
 }
 /* The global reduced-motion rule would cut this to a single frame, but the blink is the
    only thing marking the selected dot, so it keeps running. */
