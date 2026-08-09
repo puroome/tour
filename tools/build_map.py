@@ -19,7 +19,7 @@ import os
 import re
 from collections import defaultdict
 
-from shapely import union_all
+from shapely import set_precision, union_all
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, shape
 
@@ -38,13 +38,13 @@ SCALE = 8230.0
 # 있구나"를 보여주는 용도라 실측 수준까지 갈 필요가 없다. 시·군 외곽선은 읍·면·동을 합쳐서
 # 만들기 때문에 읍·면·동보다 더 거칠게 잡으면 읍·면·동이 시·군 밖으로 삐져나온다.
 DONG_TOLERANCE = float(os.environ.get("DONG_TOLERANCE", 0.22))
-# 시·군은 단순화한 읍·면·동을 합쳐서 만들므로 여기서는 일직선 위의 점만 걷어낸다.
-MUNI_TOLERANCE = float(os.environ.get("MUNI_TOLERANCE", 0.05))
-# 도(道) 경계선은 시·군을 합친 선이라, 조금이라도 더 줄이면 시·군 경계 위에 놓이지 않고
-# 옆으로 비껴 그려진다. 확대하면 선이 둘로 갈라져 보이므로 일직선 위의 점만 걷어낸다.
-PROVINCE_TOLERANCE = float(os.environ.get("PROVINCE_TOLERANCE", 0.0))
-# 합집합할 때 좌표를 맞춰 붙이는 격자. 이웃 경계가 미세하게 어긋나도 한 덩어리가 된다.
-GRID = 0.01
+# 시·군과 도(道) 경계선은 읍·면·동을 합친 결과를 그대로 쓴다. 조금이라도 더 단순화하면
+# 읍·면·동 가장자리에서 비껴나, 확대했을 때 경계가 두 줄로 보인다.
+# 저장할 때 쓰는 소수점 자릿수와, 그에 맞춘 격자. 좌표를 미리 이 격자에 맞춰 두면 파일에
+# 적는 순간 값이 달라지지 않아, 맞닿은 두 폴리곤이 정확히 같은 변을 공유한다. 그래야 경계가
+# 한 줄로 그려진다. 1자리 = 0.1단위 ≈ 76m.
+DECIMALS = 1
+GRID = 10 ** -DECIMALS
 # 이웃한 읍·면·동을 따로 단순화하면 맞닿은 변이 어긋나 사이에 실틈이 남는다(서울 기준 면적의
 # 3%). 각 폴리곤을 이만큼 부풀려 서로 겹치게 해서 메운다. 모서리를 각지게(mitre) 늘려야
 # 둥근 이음매로 꼭짓점이 불어나지 않는다.
@@ -111,7 +111,7 @@ def province_of(props):
     return props["sidonm"]
 
 
-def to_path(geometry, decimals=1):
+def to_path(geometry, decimals=DECIMALS):
     """shapely 폴리곤 -> SVG path. 구멍(내부 링)도 함께 담는다."""
     polygons = getattr(geometry, "geoms", [geometry])
     parts = []
@@ -205,9 +205,9 @@ def main():
     dongs = {}
     munis = {}
     for key, items in by_muni.items():
-        simplified = []
+        placed = []
         dongs[key] = []
-        for code, name, geometry in items:
+        for code, name, geometry in sorted(items):
             small = shrink(geometry, DONG_TOLERANCE)
             if not small.is_valid:
                 small = small.buffer(0)
@@ -215,9 +215,22 @@ def main():
                 small = geometry
             if SEAM_CLOSE:
                 small = small.buffer(SEAM_CLOSE, join_style="mitre", mitre_limit=2.0)
-            simplified.append(small)
+                # 부풀린 만큼 이웃과 겹치는데, 겹친 채로 두면 폴리곤마다 제 테두리를 그려서
+                # 경계가 두 줄로 보인다. 앞서 자리를 잡은 이웃과 겹치는 부분을 잘라내면
+                # 서로 같은 변을 공유하게 되어 선이 한 줄로 겹쳐 그려진다.
+                overlaps = [other for other in placed if small.intersects(other)]
+                if overlaps:
+                    trimmed = small.difference(union_all(overlaps, grid_size=GRID), grid_size=GRID)
+                    if not trimmed.is_empty and trimmed.geom_type in ("Polygon", "MultiPolygon"):
+                        small = trimmed if trimmed.is_valid else trimmed.buffer(0)
+            snapped = set_precision(small, GRID)
+            if not snapped.is_empty and snapped.geom_type in ("Polygon", "MultiPolygon"):
+                small = snapped
+            placed.append(small)
             dongs[key].append((code, name, small))
-        munis[key] = drop_specks(merge(simplified), MUNI_MIN_AREA).simplify(MUNI_TOLERANCE)
+        # 읍·면·동을 합친 그대로 둔다. 여기서 한 번 더 단순화하면 시·군 선이 읍·면·동
+        # 가장자리에서 비껴나, 확대했을 때 바깥 경계가 두 줄로 보인다.
+        munis[key] = set_precision(drop_specks(merge(placed), MUNI_MIN_AREA), GRID)
 
     old_path = os.path.join(REPO, "js", "map-data.json")
     old = json.load(io.open(old_path, encoding="utf-8")) if os.path.exists(old_path) else {"MUNIS": {}, "PROVINCES": {}}
@@ -250,7 +263,7 @@ def main():
     province_out = {}
     for province in sorted(set(provinces.values())):
         members = [munis[k] for k, p in provinces.items() if p == province]
-        outline = drop_specks(merge(members), PROVINCE_MIN_AREA).simplify(PROVINCE_TOLERANCE)
+        outline = set_precision(drop_specks(merge(members), PROVINCE_MIN_AREA), GRID)
         entry = {"d": to_path(shift(outline))}
         if province in old.get("PROVINCES", {}) and "region" in old["PROVINCES"][province]:
             entry["region"] = old["PROVINCES"][province]["region"]
