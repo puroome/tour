@@ -860,6 +860,40 @@ body { background: #dfe5df; }
 .bottom-nav a .nav-icon { width: 33px; height: 33px; display: grid; place-items: center; }
 .bottom-nav a .nav-icon svg { width: 33px; height: 33px; display: block; }
 
+.admin-tools-dialog {
+  width: min(360px, calc(100% - 32px));
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 22px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 24px 70px rgba(10, 38, 30, .3);
+}
+.admin-tools-dialog::backdrop { background: rgba(10, 38, 30, .5); backdrop-filter: blur(4px); }
+.admin-tools-dialog .dialog-close { color: var(--ink-soft); }
+.admin-tools-dialog,
+.admin-tools-dialog * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.admin-tools-content { padding: 70px 26px 26px; }
+.admin-tools-list { display: grid; gap: 9px; }
+.admin-tools-list button {
+  display: block;
+  min-height: 54px;
+  padding: 0 16px;
+  border: 1px solid var(--mint-deep);
+  border-radius: 13px;
+  color: #fff;
+  background: var(--mint-deep);
+  font: inherit;
+  font-weight: 800;
+  text-align: center;
+}
+.admin-tools-list button:active { background: #225f50; }
+
 #login-screen,
 #permission-request-screen,
 #denied-screen { padding: 0; background: #dfe5df; }

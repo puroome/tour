@@ -86,25 +86,40 @@ function doGet(event) {
 
 function doPost(event) {
   let requestId = '';
+  let action = '';
   try {
     const rawPayload = event && event.parameter && event.parameter.payload
       ? event.parameter.payload
       : event && event.postData ? event.postData.contents || '{}' : '{}';
     const payload = JSON.parse(rawPayload);
     requestId = String(payload.requestId || '');
-    if (String(payload.action || '') !== 'uploadFieldPhoto') {
-      throw new Error('지원하지 않는 업로드 요청입니다.');
-    }
-    return photoUploadOutput_(uploadFieldPhoto_(payload), requestId);
+    action = String(payload.action || '');
+    if (action === 'uploadFieldPhoto') return photoUploadOutput_(uploadFieldPhoto_(payload), requestId);
+    if (action === 'getAdminDashboard') return adminDashboardOutput_(getAdminDashboard_(payload), requestId);
+    throw new Error('지원하지 않는 요청입니다.');
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);
-    return photoUploadOutput_({ success: false, message: error.message || '사진 업로드에 실패했습니다.' }, requestId);
+    const result = { success: false, message: error.message || '요청 처리에 실패했습니다.' };
+    return action === 'uploadFieldPhoto'
+      ? photoUploadOutput_(result, requestId)
+      : adminDashboardOutput_(result, requestId);
   }
 }
 
 function photoUploadOutput_(result, requestId) {
   const message = JSON.stringify({
     type: 'geoQuestPhotoUpload',
+    requestId: String(requestId || ''),
+    result: result
+  }).replace(/</g, '\\u003c');
+  return HtmlService.createHtmlOutput(
+    `<script>window.top.postMessage(${message}, '*');</script>`
+  ).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function adminDashboardOutput_(result, requestId) {
+  const message = JSON.stringify({
+    type: 'geoQuestAdminDashboard',
     requestId: String(requestId || ''),
     result: result
   }).replace(/</g, '\\u003c');
@@ -226,6 +241,21 @@ function requestStudentPermission_(parameters) {
 }
 
 function verifiedPhotoUploader_(idToken) {
+  const email = verifiedFirebaseEmail_(idToken);
+  const context = studentRosterContext_();
+  const row = context.values.slice(1).find(value => (
+    String(value[context.indexes.Email] || '').trim().toLowerCase() === email
+  ));
+  const permission = studentPermissionResult_(row, context.indexes);
+  if (permission.status !== 'approved') throw new Error('승인된 계정만 현장 사진을 올릴 수 있습니다.');
+  const studentId = String(row[context.indexes.ID] || '').trim();
+  const canEdit = permission.canEdit === true;
+  if (studentId && !/^\d{5}$/.test(studentId)) throw new Error('user 탭의 학번은 숫자 5자리여야 합니다.');
+  if (!studentId && !canEdit) throw new Error('user 탭에서 학번을 확인해 주세요.');
+  return { filePrefix: studentId || googleAccountId_(email) };
+}
+
+function verifiedFirebaseEmail_(idToken) {
   const token = String(idToken || '').trim();
   if (token.length < 100) throw new Error('로그인 확인 정보가 없습니다. 다시 로그인해 주세요.');
   const response = UrlFetchApp.fetch(
@@ -239,18 +269,89 @@ function verifiedPhotoUploader_(idToken) {
   );
   if (response.getResponseCode() !== 200) throw new Error('로그인 확인에 실패했습니다. 다시 로그인해 주세요.');
   const user = (JSON.parse(response.getContentText() || '{}').users || [])[0];
-  const email = normalizeStudentEmail_(user && user.email);
+  return normalizeStudentEmail_(user && user.email);
+}
+
+function verifiedAdministrator_(idToken) {
+  const email = verifiedFirebaseEmail_(idToken);
   const context = studentRosterContext_();
   const row = context.values.slice(1).find(value => (
     String(value[context.indexes.Email] || '').trim().toLowerCase() === email
   ));
   const permission = studentPermissionResult_(row, context.indexes);
-  if (permission.status !== 'approved') throw new Error('승인된 계정만 현장 사진을 올릴 수 있습니다.');
-  const studentId = String(row[context.indexes.ID] || '').trim();
-  const canEdit = permission.canEdit === true;
-  if (studentId && !/^\d{5}$/.test(studentId)) throw new Error('user 탭의 학번은 숫자 5자리여야 합니다.');
-  if (!studentId && !canEdit) throw new Error('user 탭에서 학번을 확인해 주세요.');
-  return { filePrefix: studentId || googleAccountId_(email) };
+  if (permission.status !== 'approved' || permission.canEdit !== true) {
+    throw new Error('관리자 권한이 있는 계정만 관리자 모드를 열 수 있습니다.');
+  }
+  return { email: email };
+}
+
+function getAdminDashboard_(payload) {
+  verifiedAdministrator_(payload.idToken);
+  const firestoreBase = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const headers = { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` };
+  return {
+    success: true,
+    generatedAt: new Date().toISOString(),
+    students: listFirestoreProgressForAdmin_(firestoreBase, headers)
+  };
+}
+
+function listFirestoreProgressForAdmin_(firestoreBase, headers) {
+  // Progress lives in users/{uid}/apps/geoQuest. Its parent users/{uid} document
+  // may not exist, so query the apps collection group instead of listing users.
+  const response = UrlFetchApp.fetch(`${firestoreBase}:runQuery`, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      structuredQuery: { from: [{ collectionId: 'apps', allDescendants: true }] }
+    }),
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(`학생 기록 조회 실패 (${response.getResponseCode()})`);
+  }
+  const students = [];
+  firestoreRunQueryRows_(response.getContentText()).forEach(row => {
+    const document = row.document;
+    if (!document || !/\/apps\/geoQuest$/.test(String(document.name || ''))) return;
+    const fields = firestoreFieldsToPlain_(document.fields || {});
+    const student = fields.student && typeof fields.student === 'object' ? fields.student : {};
+    if (!student.name || !/^\d{5}$/.test(String(student.studentId || ''))) return;
+    const photoUploads = fields.photoUploads && typeof fields.photoUploads === 'object' ? fields.photoUploads : {};
+    const completedMissions = (Array.isArray(fields.ownedMissions) ? fields.ownedMissions : [])
+      .filter(key => photoUploads[key] && photoUploads[key].url);
+    students.push({
+      name: String(student.name),
+      studentId: String(student.studentId),
+      completedMissions: completedMissions
+    });
+  });
+  return students;
+}
+
+function firestoreRunQueryRows_(content) {
+  const text = String(content || '').trim();
+  if (!text) return [];
+  if (text.startsWith('[')) return JSON.parse(text);
+  return text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+}
+
+function firestoreFieldsToPlain_(fields) {
+  const plain = {};
+  Object.keys(fields || {}).forEach(key => { plain[key] = firestoreValueToPlain_(fields[key]); });
+  return plain;
+}
+
+function firestoreValueToPlain_(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (Object.prototype.hasOwnProperty.call(value, 'stringValue')) return String(value.stringValue);
+  if (Object.prototype.hasOwnProperty.call(value, 'booleanValue')) return value.booleanValue === true;
+  if (Object.prototype.hasOwnProperty.call(value, 'integerValue')) return Number(value.integerValue);
+  if (Object.prototype.hasOwnProperty.call(value, 'doubleValue')) return Number(value.doubleValue);
+  if (value.arrayValue) return (value.arrayValue.values || []).map(firestoreValueToPlain_);
+  if (value.mapValue) return firestoreFieldsToPlain_(value.mapValue.fields || {});
+  return null;
 }
 
 // 관리자는 학번을 비워 둘 수 있는데, 관리자가 여러 명이면 모두 같은 이름으로 저장됩니다.

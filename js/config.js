@@ -3,6 +3,7 @@ export const APP_CONFIG = Object.freeze({
   sheetId: "130uj9eqwuHq6FTsXq_xBXh_qHT8Qb1WoCgCnHaQtsBE",
   sheetName: "quiz",
   sheetUrl: "https://docs.google.com/spreadsheets/d/130uj9eqwuHq6FTsXq_xBXh_qHT8Qb1WoCgCnHaQtsBE/edit?usp=sharing",
+  fieldPhotoDriveUrl: "https://drive.google.com/drive/folders/14AX0s0hQWXghRHDMp-UJ6_I9E5_AnXRy",
   // Code.gs를 웹 앱으로 배포한 뒤 /exec URL을 입력하세요. API 키는 이 파일에 넣지 않습니다.
   tourApiProxyUrl: "https://script.google.com/macros/s/AKfycbyKVIP9fWQlPcknWVzk67DiFWJcfVP8E_5WdgQci9U1z1TZN6moWzasGcN2tx53O6PS/exec",
   tourApiRadiusMeters: 300,

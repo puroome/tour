@@ -183,6 +183,17 @@
     <div id="place-description-content"></div>
   </dialog>
 
+  <dialog id="admin-tools-dialog" class="admin-tools-dialog" aria-label="관리자 도구">
+    <form method="dialog"><button class="dialog-close" value="close" aria-label="관리자 메뉴 닫기">×</button></form>
+    <div class="admin-tools-content">
+      <div class="admin-tools-list">
+        <button id="open-sheet-tool" type="button">구글 시트</button>
+        <button id="open-drive-tool" type="button">사진 폴더</button>
+        <button id="open-admin-tool" type="button">관리자 모드</button>
+      </div>
+    </div>
+  </dialog>
+
   <input id="photo-upload-input" class="photo-upload-input" type="file" accept="image/*" capture="environment" aria-label="현장 사진 선택">
   <iframe id="photo-upload-frame" class="photo-upload-frame" name="photo-upload-frame" title="현장 사진 업로드 결과"></iframe>
 
