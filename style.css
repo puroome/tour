@@ -935,6 +935,12 @@ body { background: #dfe5df; }
   background: var(--card);
   box-shadow: 0 22px 60px rgba(10, 38, 30, .32);
 }
+.place-description-dialog,
+.place-description-dialog * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 .place-description-dialog::backdrop { background: rgba(18, 42, 35, .67); backdrop-filter: blur(5px); }
 .place-description-head { padding: 34px 34px 24px; color: #fff; background: var(--ink); }
 .place-description-head .eyebrow { color: var(--orange-soft); }

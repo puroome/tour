@@ -508,7 +508,7 @@ function showMapTooltip(event) {
   const tooltip = $("map-tooltip");
   const missionCount = missionsForRegion(name).length;
   const owned = state.owned.has(name);
-  tooltip.textContent = `${name} · ${owned ? "지역 완료" : missionCount ? `탐방지 ${missionCount}곳` : "미등록"}`;
+  tooltip.textContent = `${displayRegionName(name)} · ${owned ? "지역 완료" : missionCount ? `탐방지 ${missionCount}곳` : "미등록"}`;
   tooltip.classList.remove("hidden");
   moveMapTooltip(event);
 }
@@ -693,7 +693,7 @@ function renderMapRegionSummary() {
   }
   const missions = missionsForRegion(regionId);
   const completed = missions.filter(isMissionOwned).length;
-  $("map-region-progress-title").textContent = `${regionId} 방문 기록`;
+  $("map-region-progress-title").textContent = `${displayRegionName(regionId)} 방문 기록`;
   $("map-region-progress-count").textContent = `${completed}/${missions.length}`;
   const themeOrder = new Map();
   missions.forEach((mission, index) => {
@@ -805,7 +805,7 @@ function zoomToMapRegion(name) {
   const target = [bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2];
   state.mapBaseViewBox = target.slice();
   animateMapViewBox(target);
-  $("map-title").textContent = name;
+  $("map-title").textContent = displayRegionName(name);
   $("map-back-button").classList.remove("hidden");
   updateMapState({ renderSummary: true });
 }
@@ -861,12 +861,12 @@ function populatePassportRegionSelect() {
   const regions = uniqueRegions(state.quizzes).sort((a, b) => a.localeCompare(b, "ko"));
   if (!regions.includes(state.passportRegion)) state.passportRegion = "";
   select.innerHTML = `<option value="">전체 지역</option>${regions.map((region) => (
-    `<option value="${escapeHTML(region)}">${escapeHTML(displayPassportRegionName(region))}</option>`
+    `<option value="${escapeHTML(region)}">${escapeHTML(displayRegionName(region))}</option>`
   )).join("")}`;
   select.value = state.passportRegion;
 }
 
-function displayPassportRegionName(region) {
+function displayRegionName(region) {
   return region === "광주광역시" ? "광주특별시" : region;
 }
 
@@ -1241,7 +1241,7 @@ function showPlaceDescription(place) {
   const photoUrl = photoDisplayUrl(photo);
   $("place-description-content").innerHTML = `
     <div class="place-description-head">
-      <p class="eyebrow">${escapeHTML(place?.regionId || "현장 정보")}</p>
+      <p class="eyebrow">${escapeHTML(displayRegionName(place?.regionId || "현장 정보"))}</p>
       <h2>${escapeHTML(placeLabel(place))}</h2>
     </div>
     <div class="place-description-body">
@@ -1530,7 +1530,7 @@ function renderQuestList(items) {
         <span class="range-badge${owned ? " done" : ""}${answered && !hasPhoto ? " photo-pending" : ""}">${item.inRange ? (owned ? "● 탐방 완료" : answered ? "● 사진 업로드 대기" : "● 도전 가능") : `${activationDistance} 안에서 활성화`}</span>
       </div>
       <h3><button type="button" class="place-name-button">${escapeHTML(placeLabel(item))}</button></h3>
-      <p>${escapeHTML(item.regionId)} · ${owned ? "탐방 완료" : answered ? "정답 완료 · 사진 업로드 대기" : "미획득 장소"}</p>
+      <p>${escapeHTML(displayRegionName(item.regionId))} · ${owned ? "탐방 완료" : answered ? "정답 완료 · 사진 업로드 대기" : "미획득 장소"}</p>
       ${actionMarkup}`;
     article.querySelector(".place-name-button").addEventListener("click", () => showPlaceDescription(item));
     if (owned) {
@@ -1562,7 +1562,7 @@ function openQuiz(mission) {
   const content = $("quiz-dialog-content");
   content.innerHTML = `
     <div class="quiz-head">
-      <p class="eyebrow">${escapeHTML(quiz.regionId)} · 현장 퀴즈</p>
+      <p class="eyebrow">${escapeHTML(displayRegionName(quiz.regionId))} · 현장 퀴즈</p>
       <h2>${escapeHTML(quiz.placeName)}</h2>
       <p>${escapeHTML(formatDistance(quiz.distance))} 거리에서 도전 중</p>
     </div>
