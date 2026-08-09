@@ -529,9 +529,8 @@ body { background: #dfe5df; }
   --passport-foil: #eef0fb;
   position: relative;
   width: 100%;
-  /* Keep the card compact: the freed 48px is taken from the flexible body area,
-     halving the otherwise empty gap above the location status. */
-  min-height: calc(100% - 48px);
+  /* A second 28px reduction halves the remaining gap above the location status. */
+  min-height: calc(100% - 76px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -739,7 +738,7 @@ body { background: #dfe5df; }
 .quest-screen .quest-panel { min-height: 100%; }
 /* The map screen has 10px more bottom padding than the passport screen, so its
    adjustment is offset by 10px to keep both cards exactly the same height. */
-.map-screen .map-card { min-height: calc(100% - 38px); }
+.map-screen .map-card { min-height: calc(100% - 66px); }
 
 .section-heading,
 .section-heading.compact {
