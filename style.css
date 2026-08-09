@@ -529,8 +529,8 @@ body { background: #dfe5df; }
   --passport-foil: #eef0fb;
   position: relative;
   width: 100%;
-  /* A second 28px reduction halves the remaining gap above the location status. */
-  min-height: calc(100% - 76px);
+  /* Shorten the card with the title-to-region-picker gap. */
+  min-height: calc(100% - 105px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -663,7 +663,7 @@ body { background: #dfe5df; }
   flex-direction: column;
   justify-content: flex-start;
   gap: 18px;
-  padding: 58px 34px 20px;
+  padding: 29px 34px 20px;
 }
 
 .passport-stamp {
@@ -738,7 +738,7 @@ body { background: #dfe5df; }
 .quest-screen .quest-panel { min-height: 100%; }
 /* The map screen has 10px more bottom padding than the passport screen, so its
    adjustment is offset by 10px to keep both cards exactly the same height. */
-.map-screen .map-card { min-height: calc(100% - 66px); }
+.map-screen .map-card { min-height: calc(100% - 68px); }
 
 .section-heading,
 .section-heading.compact {
