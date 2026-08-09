@@ -1,11 +1,15 @@
 const EARTH_RADIUS_METERS = 6371008.8;
+// 지도 경계(js/map-data.json, js/dong/*.json)를 만들 때 쓴 것과 똑같은 람베르트 정각원뿔
+// 도법. 경계와 장소 점이 한 식에서 나오므로 따로 맞춰줄 보정이 필요 없다. 값을 바꾸려면
+// tools/build_map.py 로 경계를 다시 만들고 그때 출력되는 수치를 그대로 옮겨야 한다.
 const MAP_PROJECTION = Object.freeze({
-  xLongitude: 118.128145,
-  xLatitude: -1.15294961,
-  xOffset: -14674.8048,
-  yLongitude: 1.37266461,
-  yLatitude: -149.426273,
-  yOffset: 5590.88048
+  standardParallel1: 34,
+  standardParallel2: 38,
+  originLatitude: 36,
+  originLongitude: 127.5,
+  scale: 8230,
+  offsetX: 335.22,
+  offsetY: 384.23
 });
 const SVG_RING_CACHE = new WeakMap();
 
@@ -38,17 +42,31 @@ export function formatDistance(meters) {
   return `${kilometers}km`;
 }
 
+// 원뿔의 기울기(n)와 크기(f)는 기준 위도 두 개만으로 정해지는 상수라 한 번만 계산해 둔다.
+const CONE = (() => {
+  const quarter = Math.PI / 4;
+  const parallel1 = toRadians(MAP_PROJECTION.standardParallel1);
+  const parallel2 = toRadians(MAP_PROJECTION.standardParallel2);
+  const n = Math.log(Math.cos(parallel1) / Math.cos(parallel2))
+    / Math.log(Math.tan(quarter + parallel2 / 2) / Math.tan(quarter + parallel1 / 2));
+  const f = Math.cos(parallel1) * Math.tan(quarter + parallel1 / 2) ** n / n;
+  return {
+    n: n,
+    f: f,
+    originRadius: f / Math.tan(quarter + toRadians(MAP_PROJECTION.originLatitude) / 2) ** n
+  };
+})();
+
 export function projectCoordinatesToMap(point) {
   const latitude = Number(point?.latitude);
   const longitude = Number(point?.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const radius = CONE.f / Math.tan(Math.PI / 4 + toRadians(latitude) / 2) ** CONE.n;
+  const angle = CONE.n * toRadians(longitude - MAP_PROJECTION.originLongitude);
   return {
-    x: MAP_PROJECTION.xLongitude * longitude
-      + MAP_PROJECTION.xLatitude * latitude
-      + MAP_PROJECTION.xOffset,
-    y: MAP_PROJECTION.yLongitude * longitude
-      + MAP_PROJECTION.yLatitude * latitude
-      + MAP_PROJECTION.yOffset
+    x: MAP_PROJECTION.scale * radius * Math.sin(angle) + MAP_PROJECTION.offsetX,
+    // 화면 좌표는 아래로 갈수록 커지므로 남북을 뒤집는다.
+    y: MAP_PROJECTION.scale * (radius * Math.cos(angle) - CONE.originRadius) + MAP_PROJECTION.offsetY
   };
 }
 
@@ -88,6 +106,30 @@ export function findRegionByCoordinates(municipalities, location) {
     if (municipalityRings(municipality).some((ring) => pointInRing(point, ring))) return name;
   }
   return "";
+}
+
+// 경계 자료가 단순화돼 있어 성산일출봉·호미곶처럼 곶 끝이나 작은 섬에 있는 장소는 어느
+// 폴리곤에도 들어가지 않는다. 소속 시·군은 이미 정해진 상태에서 그 안의 읍·면·동만 고르는
+// 자리에 쓰라고 만든 함수라, 담고 있는 곳이 없으면 가장 가까운 경계선을 고른다.
+export function nearestRegionByCoordinates(municipalities, location) {
+  const inside = findRegionByCoordinates(municipalities, location);
+  if (inside) return inside;
+  const point = projectCoordinatesToMap(location);
+  if (!point || !municipalities || typeof municipalities !== "object") return "";
+  let best = "";
+  let bestGap = Number.POSITIVE_INFINITY;
+  for (const [name, municipality] of Object.entries(municipalities)) {
+    for (const ring of municipalityRings(municipality)) {
+      for (const [x, y] of ring) {
+        const gap = (x - point.x) ** 2 + (y - point.y) ** 2;
+        if (gap < bestGap) {
+          bestGap = gap;
+          best = name;
+        }
+      }
+    }
+  }
+  return best;
 }
 
 export function parseBoolean(value, defaultValue = true) {

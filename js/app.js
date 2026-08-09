@@ -17,6 +17,7 @@ import { APP_CONFIG } from "./config.js";
 import {
   distanceMeters,
   formatDistance,
+  nearestRegionByCoordinates,
   projectCoordinatesToMap,
   rankNearbyQuizzes,
   safeOwnedRegions,
@@ -28,13 +29,16 @@ const $ = (id) => document.getElementById(id);
 // 시작하고, 실제로 지도 화면에 들어갈 때만 js/map-data.json을 내려받아 채운다.
 let MUNIS = {};
 let PROVINCES = {};
+// 시·군 이름 -> 읍·면·동 경계 파일 번호. 전국 3,482개 경계를 한 번에 받으면 500KB가 넘어
+// 시·군별(평균 3KB)로 쪼갠 뒤, 실제로 들어간 시·군 것만 그때 받는다.
+let DONG_CHUNKS = {};
 const search = new URLSearchParams(location.search);
 const IS_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
 const PREVIEW_MODE = IS_LOCAL && search.get("preview") === "1";
-// 좌표 전체(0~760)를 다 담으면 울릉도(x 745~760)와 서해3도(x 0~14) 때문에 정작 본토가
-// 화면의 절반도 못 채운다. 실제로 찾아갈 일이 없는 그 두 곳은 기본 화면에서 잘라내고
-// 본토와 제주에 맞춰 좁힌 범위다. 잘린 섬도 지도를 끌어서 옮기면 그대로 볼 수 있다.
-const BASE_MAP_VIEWBOX = [140, -8, 466, 820];
+// 좌표 전체(0~843)를 다 담으면 울릉도·독도(x 710~835)와 백령도 쪽 서해 섬(x 8부터) 때문에
+// 정작 본토가 화면의 절반도 못 채운다. 그 양끝은 기본 화면에서 잘라내고 본토와 제주에 맞춰
+// 좁힌 범위다. 잘린 섬도 지도를 끌어서 옮기면 그대로 볼 수 있다.
+const BASE_MAP_VIEWBOX = [78, 0, 507, 806];
 
 const screens = {
   loading: $("loading-screen"),
@@ -64,6 +68,13 @@ const state = {
   mapPaths: new Map(),
   mapReady: false,
   selectedMapRegion: null,
+  // 3단계(읍·면·동)는 선택한 시·군의 경계만 따로 내려받아 그린다. dongOfMission은 장소
+  // 좌표를 읍·면·동 폴리곤에 대입한 결과 캐시이고, 시·군을 옮길 때마다 비운다.
+  selectedDong: null,
+  dongData: null,
+  dongPaths: new Map(),
+  dongOfMission: new Map(),
+  dongMissionIndex: null,
   mapAnimationFrame: null,
   mapBaseViewBox: BASE_MAP_VIEWBOX.slice(),
   watchId: null,
@@ -347,6 +358,8 @@ function loadQuizCache() {
 }
 
 function applyLoadedQuizzes() {
+  state.dongOfMission.clear();
+  state.dongMissionIndex = null;
   populatePassportRegionSelect();
   updateMapState({ renderSummary: true });
   updateProgressUI();
@@ -530,6 +543,7 @@ function ensureMapGeometry() {
       .then((data) => {
         MUNIS = data.MUNIS || {};
         PROVINCES = data.PROVINCES || {};
+        DONG_CHUNKS = data.DONG_CHUNKS || {};
       })
       .catch((error) => {
         mapGeometryPromise = null; // 실패 시 다음 지도 탭 진입에서 다시 시도할 수 있게 둔다.
@@ -600,6 +614,11 @@ function buildMap() {
     path.setAttribute("class", "prov-border");
     svg.appendChild(path);
   }
+  // 읍·면·동은 시·군 칠 위, 장소 점 아래에 얹는다. 선택한 시·군 하나만 들어 있고 칠도
+  // 반투명이라 아래 시·군 색과 도 경계선이 그대로 비친다.
+  const dongLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  dongLayer.id = "map-dong-layer";
+  svg.appendChild(dongLayer);
   const dotLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
   dotLayer.id = "map-quiz-dots";
   svg.appendChild(dotLayer);
@@ -612,6 +631,15 @@ function showMapTooltip(event) {
   const missionCount = missionsForMapRegion(name).length;
   const owned = isMapRegionOwned(name);
   tooltip.textContent = `${displayRegionName(name)} · ${owned ? "지역 완료" : missionCount ? `탐방지 ${missionCount}곳` : "미등록"}`;
+  tooltip.classList.remove("hidden");
+  moveMapTooltip(event);
+}
+
+function showDongTooltip(event) {
+  const code = event.currentTarget.dataset.code;
+  const tooltip = $("map-tooltip");
+  const missionCount = missionsForDong(code).length;
+  tooltip.textContent = `${dongName(code)} · ${isDongOwned(code) ? "완료" : missionCount ? `탐방지 ${missionCount}곳` : "미등록"}`;
   tooltip.classList.remove("hidden");
   moveMapTooltip(event);
 }
@@ -794,9 +822,11 @@ function renderMapRegionSummary() {
     section.classList.add("hidden");
     return;
   }
-  const missions = missionsForMapRegion(regionId);
+  const missions = currentMapMissions();
   const completed = missions.filter(isMissionOwned).length;
-  $("map-region-progress-title").textContent = `${displayRegionName(regionId)} 방문 기록`;
+  $("map-region-progress-title").textContent = state.selectedDong
+    ? `${dongName(state.selectedDong)} 방문 기록`
+    : `${displayRegionName(regionId)} 방문 기록`;
   $("map-region-progress-count").textContent = `${completed}/${missions.length}`;
   const themeOrder = new Map();
   missions.forEach((mission, index) => {
@@ -852,9 +882,8 @@ function updateMapDots() {
   const layer = $("map-quiz-dots");
   if (!layer) return;
   layer.innerHTML = "";
-  const regionId = state.selectedMapRegion;
-  const path = state.mapPaths.get(regionId);
-  const missions = missionsForMapRegion(regionId);
+  const path = currentMapPath();
+  const missions = currentMapMissions();
   if (!path || !missions.length) return;
 
   const bbox = path.getBBox();
@@ -895,6 +924,133 @@ function updateMapDots() {
   });
 }
 
+const dongChunkPromises = new Map();
+
+function ensureDongData(mapRegionId) {
+  const chunk = DONG_CHUNKS[mapRegionId];
+  if (!chunk) return Promise.resolve(null);
+  if (!dongChunkPromises.has(mapRegionId)) {
+    dongChunkPromises.set(mapRegionId, fetch(`./js/dong/${chunk}.json`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`읍면동 경계 응답 오류 (${response.status})`);
+        return response.json();
+      })
+      .catch((error) => {
+        dongChunkPromises.delete(mapRegionId); // 다음 진입에서 다시 시도할 수 있게 둔다.
+        throw error;
+      }));
+  }
+  return dongChunkPromises.get(mapRegionId);
+}
+
+function dongName(code) {
+  return state.dongData?.[code]?.n || "";
+}
+
+// 시트에는 읍·면·동 정보가 없으므로 장소 좌표를 읍·면·동 폴리곤에 직접 대입해 정한다.
+// 시·군을 정할 때 쓰는 것과 같은 방식이라 주소 표기가 달라도 결과가 어긋나지 않는다.
+function dongCodeForMission(mission) {
+  const key = missionKey(mission);
+  if (!state.dongOfMission.has(key)) {
+    state.dongOfMission.set(key, state.dongData ? nearestRegionByCoordinates(state.dongData, mission) : "");
+  }
+  return state.dongOfMission.get(key);
+}
+
+// 서울은 읍·면·동이 423개라, 갱신 한 번마다 동별로 전체 퀴즈를 훑으면 위치가 바뀔 때마다
+// 수십만 번을 비교하게 된다. 한 번 묶어두고 지역이나 퀴즈 목록이 바뀔 때만 다시 만든다.
+function missionsByDong() {
+  if (!state.dongMissionIndex) {
+    const index = new Map();
+    missionsForMapRegion(state.selectedMapRegion).forEach((mission) => {
+      const code = dongCodeForMission(mission);
+      if (!code) return;
+      if (!index.has(code)) index.set(code, []);
+      index.get(code).push(mission);
+    });
+    state.dongMissionIndex = index;
+  }
+  return state.dongMissionIndex;
+}
+
+function missionsForDong(code) {
+  if (!code) return [];
+  return missionsByDong().get(code) || [];
+}
+
+function isDongOwned(code) {
+  const missions = missionsForDong(code);
+  return missions.length > 0 && missions.every(isMissionOwned);
+}
+
+// 지금 지도가 보여주는 범위의 장소들. 읍·면·동까지 들어갔으면 그 안의 장소만 남는다.
+function currentMapMissions() {
+  if (state.selectedDong) return missionsForDong(state.selectedDong);
+  return missionsForMapRegion(state.selectedMapRegion);
+}
+
+function currentMapPath() {
+  if (state.selectedDong) return state.dongPaths.get(state.selectedDong);
+  return state.mapPaths.get(state.selectedMapRegion);
+}
+
+function renderDongLayer() {
+  const layer = $("map-dong-layer");
+  if (!layer) return;
+  layer.innerHTML = "";
+  state.dongPaths.clear();
+  if (!state.dongData) return;
+  for (const [code, dong] of Object.entries(state.dongData)) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", dong.d);
+    path.setAttribute("class", "dong");
+    path.dataset.code = code;
+    path.addEventListener("pointerenter", showDongTooltip);
+    path.addEventListener("pointermove", moveMapTooltip);
+    path.addEventListener("pointerleave", hideMapTooltip);
+    path.addEventListener("click", (event) => {
+      event.stopPropagation();
+      zoomToDong(code);
+    });
+    path.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        zoomToDong(code);
+      }
+    });
+    layer.appendChild(path);
+    state.dongPaths.set(code, path);
+  }
+}
+
+function loadDongLayer(name) {
+  state.dongData = null;
+  state.dongOfMission.clear();
+  state.dongMissionIndex = null;
+  renderDongLayer();
+  ensureDongData(name)
+    .then((data) => {
+      // 경계를 받는 사이에 학생이 다른 지역으로 옮겼다면 그 화면을 덮어쓰지 않는다.
+      if (!data || state.selectedMapRegion !== name) return;
+      state.dongData = data;
+      state.dongOfMission.clear();
+      state.dongMissionIndex = null;
+      renderDongLayer();
+      updateMapState({ renderSummary: true });
+    })
+    .catch((error) => {
+      console.warn("Dong boundary load failed", error);
+    });
+}
+
+function zoomToBBox(path) {
+  const bbox = path.getBBox();
+  const padding = Math.max(9, Math.max(bbox.width, bbox.height) * .24);
+  const target = [bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2];
+  state.mapBaseViewBox = target.slice();
+  animateMapViewBox(target);
+}
+
 function zoomToMapRegion(name) {
   const path = state.mapPaths.get(name);
   const missions = missionsForMapRegion(name);
@@ -903,18 +1059,52 @@ function zoomToMapRegion(name) {
     return;
   }
   state.selectedMapRegion = name;
-  const bbox = path.getBBox();
-  const padding = Math.max(9, Math.max(bbox.width, bbox.height) * .24);
-  const target = [bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2];
-  state.mapBaseViewBox = target.slice();
-  animateMapViewBox(target);
+  state.selectedDong = null;
+  zoomToBBox(path);
   $("map-title").textContent = displayRegionName(name);
-  $("map-back-button").classList.remove("hidden");
+  const backButton = $("map-back-button");
+  backButton.classList.remove("hidden");
+  backButton.setAttribute("aria-label", "전국 지도로 돌아가기");
+  loadDongLayer(name);
   updateMapState({ renderSummary: true });
+}
+
+function zoomToDong(code) {
+  const path = state.dongPaths.get(code);
+  if (!path) return;
+  if (!missionsForDong(code).length) {
+    showToast("이 읍·면·동에는 등록된 탐방지가 아직 없습니다.");
+    return;
+  }
+  state.selectedDong = code;
+  zoomToBBox(path);
+  $("map-title").textContent = `${state.selectedMapRegion} ${dongName(code)}`;
+  $("map-back-button").setAttribute("aria-label", `${displayRegionName(state.selectedMapRegion)} 지도로 돌아가기`);
+  hideMapTooltip();
+  updateMapState({ renderSummary: true });
+}
+
+// 뒤로가기는 한 단계씩만 올라간다: 읍·면·동 -> 시·군 -> 전국.
+function stepBackMapZoom() {
+  if (state.selectedDong) {
+    const region = state.selectedMapRegion;
+    state.selectedDong = null;
+    zoomToBBox(state.mapPaths.get(region));
+    $("map-title").textContent = displayRegionName(region);
+    $("map-back-button").setAttribute("aria-label", "전국 지도로 돌아가기");
+    updateMapState({ renderSummary: true });
+    return;
+  }
+  resetMapZoom();
 }
 
 function resetMapZoom() {
   state.selectedMapRegion = null;
+  state.selectedDong = null;
+  state.dongData = null;
+  state.dongOfMission.clear();
+  state.dongMissionIndex = null;
+  renderDongLayer();
   state.mapBaseViewBox = BASE_MAP_VIEWBOX.slice();
   animateMapViewBox(BASE_MAP_VIEWBOX);
   $("map-title").textContent = "방문 지도";
@@ -941,8 +1131,27 @@ function updateMapState({ renderSummary = false } = {}) {
       path.removeAttribute("aria-label");
     }
   });
+  updateDongState();
   updateMapDots();
   if (renderSummary) renderMapRegionSummary();
+}
+
+function updateDongState() {
+  state.dongPaths.forEach((path, code) => {
+    const registered = missionsForDong(code).length > 0;
+    path.classList.toggle("registered", registered);
+    path.classList.toggle("owned", isDongOwned(code));
+    path.classList.toggle("dong-selected", state.selectedDong === code);
+    if (registered) {
+      path.setAttribute("tabindex", "0");
+      path.setAttribute("role", "button");
+      path.setAttribute("aria-label", `${dongName(code)} 상세 지도 열기`);
+    } else {
+      path.removeAttribute("tabindex");
+      path.removeAttribute("role");
+      path.removeAttribute("aria-label");
+    }
+  });
 }
 
 function updateProgressUI() {
@@ -1999,7 +2208,7 @@ function bindEvents() {
     state.passportRegion = event.target.value;
     updateProgressUI();
   });
-  $("map-back-button").addEventListener("click", resetMapZoom);
+  $("map-back-button").addEventListener("click", stepBackMapZoom);
   setupMapGestures();
   setupViewSwipeNavigation();
   // iOS Safari zooms the page on pinch even with user-scalable=no, so block its
