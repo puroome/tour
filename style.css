@@ -734,9 +734,16 @@ body { background: #dfe5df; }
   box-shadow: 0 8px 24px rgba(23, 63, 53, .07);
 }
 .quest-screen .quest-panel { min-height: 100%; }
-/* The map screen has 10px more bottom padding than the passport screen, so its
-   adjustment is offset by 10px to keep both cards exactly the same height. */
-.map-screen .map-card { min-height: calc(100% - 101px); }
+/* 여권 화면과 마찬가지로 카드가 하단 탭바 바로 위까지 채운다. 남거나 모자란 높이는
+   제목·방문 기록이 아니라 지도 영역이 혼자 흡수한다. */
+.map-screen .map-card {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.map-screen .map-card > .section-heading,
+.map-screen .map-region-summary { flex: 0 0 auto; }
+.map-screen .map-stage { flex: 1 1 auto; height: auto; min-height: 260px; }
 
 .section-heading,
 .section-heading.compact {
@@ -779,8 +786,11 @@ body { background: #dfe5df; }
 .tour-card-body p { display: -webkit-box; overflow: hidden; margin: 5px 0 0; color: var(--ink-soft); font-size: 10px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .tour-card-body small { display: block; margin-top: 7px; color: var(--orange); font-size: 9px; font-weight: 800; }
 
-.map-stage { height: 500px; border-radius: 16px; }
-#korea-map { padding: 8px; }
+/* 높이는 .map-screen .map-stage 규칙이 카드 높이에 맞춰 정한다. */
+.map-stage { border-radius: 16px; }
+/* flex로 늘어난 부모에는 height: 100%가 해석되지 않아 SVG가 제 가로세로비만큼만 커지고
+   아래가 남는다. 절대 배치로 지도 영역을 그대로 채운 뒤, 그 안에서 지도를 가운데 둔다. */
+#korea-map { position: absolute; inset: 0; padding: 8px; }
 .map-caption { display: none; }
 
 #korea-map .muni.registered { cursor: pointer; }
@@ -817,7 +827,20 @@ body { background: #dfe5df; }
 .map-region-progress { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .map-region-progress strong { font-size: 14px; }
 .map-region-progress span { color: var(--red); font-size: 12px; font-weight: 800; }
-.map-place-list { display: grid; gap: 8px; }
+.map-place-list {
+  display: grid;
+  gap: 8px;
+  /* 테마가 6개쯤 되는 지역에서는 이 목록만으로 카드를 다 차지해 위쪽 지도가 납작해진다.
+     접힌 테마 한 줄(52px)과 줄 사이 간격(그리드 gap 8px + 그룹 마진 8px = 16px)을 기준으로
+     3줄까지만 펼쳐 두고 나머지는 목록 안에서 스크롤한다. 끝에 다음 줄이 조금 걸치게 남겨
+     아래에 더 있다는 것을 알린다. */
+  --theme-row: 52px;
+  --theme-row-gap: 16px;
+  max-height: calc(var(--theme-row) * 3 + var(--theme-row-gap) * 3 + 14px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
 .map-place-item { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 .map-place-item i { width: 10px; height: 10px; border: 2px solid var(--orange); border-radius: 50%; background: #fff8e8; }
 .map-place-item.completed i { border-color: var(--red); background: var(--red); }

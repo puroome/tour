@@ -31,7 +31,10 @@ let PROVINCES = {};
 const search = new URLSearchParams(location.search);
 const IS_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
 const PREVIEW_MODE = IS_LOCAL && search.get("preview") === "1";
-const BASE_MAP_VIEWBOX = [-8, -8, 776, 822];
+// 좌표 전체(0~760)를 다 담으면 울릉도(x 745~760)와 서해3도(x 0~14) 때문에 정작 본토가
+// 화면의 절반도 못 채운다. 실제로 찾아갈 일이 없는 그 두 곳은 기본 화면에서 잘라내고
+// 본토와 제주에 맞춰 좁힌 범위다. 잘린 섬도 지도를 끌어서 옮기면 그대로 볼 수 있다.
+const BASE_MAP_VIEWBOX = [140, -8, 466, 820];
 
 const screens = {
   loading: $("loading-screen"),
