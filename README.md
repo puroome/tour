@@ -150,6 +150,17 @@ python -m http.server 4173
 
 `preview=1`은 localhost 또는 `file:`에서만 작동하므로 GitHub Pages에서는 로그인과 실제 GPS 흐름을 우회할 수 없습니다.
 
+### (선택) 압축 빌드
+
+기본적으로는 빌드 없이 `js/app.js` 등 원본을 그대로 서빙합니다. 전송 용량을 더 줄이고 싶으면:
+
+```bash
+npm install --save-dev esbuild
+npm run build
+```
+
+`js/app.min.js`, `js/core.min.js`, `js/config.min.js`, `style.min.css`가 원본 옆에 생성됩니다. `index.html`과 `service-worker.js`는 자동으로 바뀌지 않으니, 로컬에서 압축본이 정상 동작하는지 확인한 뒤 두 파일의 경로를 직접 `.min` 버전으로 바꿔주세요.
+
 ## 5. GitHub Pages 게시
 
 1. 이 폴더를 새 GitHub 저장소의 루트에 올립니다.

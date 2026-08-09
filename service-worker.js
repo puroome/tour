@@ -1,4 +1,4 @@
-const CACHE_NAME = "geo-quest-v19";
+const CACHE_NAME = "geo-quest-v21";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -12,8 +12,8 @@ const APP_SHELL = [
   "./js/app.js",
   "./js/config.js",
   "./js/core.js",
-  "./js/map-data.js",
-  "./js/map-data-export.js"
+  "./js/map-region-meta.json",
+  "./js/map-data.json"
 ];
 
 self.addEventListener("install", (event) => {
@@ -37,16 +37,25 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// 같은 출처로 오는 GET 요청은 전부 정적 파일이다(Firestore·Apps Script·Firebase 호출은
+// 전부 다른 origin이라 위에서 이미 걸러짐). 그래서 네트워크 응답을 기다리지 않고 캐시가
+// 있으면 즉시 그걸 돌려주고(stale), 동시에 백그라운드로 최신 파일을 받아 다음 로딩을 위해
+// 캐시를 갱신한다(revalidate). 배포 직후 첫 로딩만 이전 버전을 보고, 그 다음 로딩부터
+// 새 버전이 반영된다 — 즉시 최신이 필요하면 "앱 새로 불러오기" 버튼이 그 역할을 한다.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
-        return response;
-      })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      const networkFetch = fetch(event.request)
+        .then((response) => {
+          if (response.ok) cache.put(event.request, response.clone());
+          return response;
+        })
+        .catch(() => cached || caches.match("./index.html"));
+      return cached || networkFetch;
+    })
   );
 });

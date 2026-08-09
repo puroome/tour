@@ -58,6 +58,7 @@ function onOpen() {
   // .addItem('퀴즈 빈 행 정리', 'compactQuizRows')
   // .addItem('퀴즈 데이터 검사', 'validateQuizSheet')
     .addItem('user 명단 → Firebase 동기화', 'syncStudentRosterToFirebase')
+    .addItem('퀴즈 → Firebase 동기화', 'syncQuizzesToFirebase')
   // .addItem('현장 사진 Drive 연결 확인', 'authorizeFieldPhotoDrive')
   // .addSeparator()
   // addItem('TourAPI 연결 확인', 'testTourApiConnection')
@@ -147,6 +148,129 @@ function getQuizData_() {
       }))
     }
   };
+}
+
+// 정답 컬럼은 보기 번호(1~4) 또는 보기 문구 그대로일 수 있어 두 형식을 모두 받아들인다.
+function parseQuizAnswerIndex_(rawAnswer, choices) {
+  const trimmed = String(rawAnswer || '').trim();
+  const number = Number.parseInt(trimmed, 10);
+  if (number >= 1 && number <= choices.length) return number - 1;
+  return choices.findIndex(choice => choice === trimmed);
+}
+
+function parseQuizActive_(rawValue) {
+  if (rawValue === '' || rawValue === null || rawValue === undefined) return true;
+  if (typeof rawValue === 'boolean') return rawValue;
+  const normalized = String(rawValue).trim().toLowerCase();
+  return !['false', '0', 'n', 'no', 'off', '비활성'].includes(normalized);
+}
+
+// js/core.js의 normalizeQuizRows와 동일한 필드·필터 규칙을 시트 → Firebase 동기화 시점에
+// 그대로 적용해, 클라이언트는 별도 파싱 없이 이 결과를 바로 쓸 수 있게 한다.
+function buildQuizRecordsForSync_(headers, rows) {
+  const columnIndex = {};
+  headers.forEach((header, index) => { columnIndex[header] = index; });
+  const get = (row, header) => row[columnIndex[header]];
+
+  return rows.map((row, rowIndex) => {
+    const choices = [1, 2, 3, 4]
+      .map(number => String(get(row, `보기${number}`) || '').trim())
+      .filter(Boolean);
+    const latitude = Number(get(row, '위도'));
+    const longitude = Number(get(row, '경도'));
+    const radius = Number(get(row, '반경m'));
+    const regionId = String(get(row, '지역ID') || '').trim();
+    const question = String(get(row, '문제') || '').trim();
+    return {
+      id: String(get(row, '퀴즈ID') || `row-${rowIndex + 2}`).trim(),
+      regionId,
+      placeName: String(get(row, '장소명') || regionId).trim(),
+      description: String(get(row, '설명') || '').trim(),
+      theme: String(get(row, '테마') || '').trim(),
+      address: String(get(row, '주소') || '').trim(),
+      latitude,
+      longitude,
+      radius: Number.isFinite(radius) && radius > 0 ? radius : 150,
+      question,
+      choices,
+      answerIndex: parseQuizAnswerIndex_(get(row, '정답'), choices),
+      explanation: String(get(row, '해설') || '').trim(),
+      active: parseQuizActive_(get(row, '활성'))
+    };
+  }).filter(quiz => quiz.active
+    && quiz.regionId
+    && quiz.question
+    && Number.isFinite(quiz.latitude)
+    && Number.isFinite(quiz.longitude)
+    && quiz.choices.length >= 2
+    && quiz.answerIndex >= 0
+    && quiz.answerIndex < quiz.choices.length);
+}
+
+function firestoreValue_(value) {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === 'boolean') return { booleanValue: value };
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
+  }
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(firestoreValue_) } };
+  if (typeof value === 'object') return { mapValue: { fields: firestoreFields_(value) } };
+  return { stringValue: String(value) };
+}
+
+function firestoreFields_(object) {
+  const fields = {};
+  Object.keys(object).forEach(key => { fields[key] = firestoreValue_(object[key]); });
+  return fields;
+}
+
+// 앱은 이 문서(meta/quizzes) 하나를 읽어 퀴즈 목록을 가져온다. 매 로딩마다 Apps Script를
+// 거쳐 시트를 읽는 대신, 선생님이 시트를 편집한 뒤 이 메뉴로 한 번 밀어 넣는 방식이다.
+function syncQuizzesToFirebase() {
+  const ui = SpreadsheetApp.getUi();
+  const spreadsheet = SpreadsheetApp.openById(GEO_QUEST_SHEET_ID);
+  const sheet = spreadsheet.getSheetByName(GEO_QUEST_SHEET_NAME);
+  if (!sheet) { ui.alert('quiz 탭을 찾을 수 없습니다.'); return; }
+  ensureQuizAddressHeader_(sheet);
+  const lastRow = Math.max(1, sheet.getLastRow());
+  const values = sheet.getRange(1, 1, lastRow, GEO_QUEST_HEADERS.length).getValues();
+  const headers = values[0].map(value => String(value || '').trim());
+  const missing = GEO_QUEST_HEADERS.filter(header => !headers.includes(header));
+  if (missing.length) { ui.alert(`퀴즈 필수 헤더가 없습니다: ${missing.join(', ')}`); return; }
+
+  const records = buildQuizRecordsForSync_(headers, values.slice(1));
+  if (!records.length) {
+    ui.alert('동기화할 활성 퀴즈가 없습니다. 기존 Firebase 데이터를 보호하기 위해 동기화를 중단했습니다.');
+    return;
+  }
+  const confirmation = ui.alert(
+    'Firestore 퀴즈 동기화',
+    `현재 시트의 활성 퀴즈 ${records.length}개를 Firestore(meta/quizzes)에 반영합니다. 계속할까요?`,
+    ui.ButtonSet.YES_NO
+  );
+  if (confirmation !== ui.Button.YES) return;
+
+  const firestoreBase = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const headersAuth = { Authorization: `Bearer ${ScriptApp.getOAuthToken()}` };
+  const payload = {
+    fields: {
+      quizzes: firestoreValue_(records),
+      syncedAt: { timestampValue: new Date().toISOString() }
+    }
+  };
+  const response = UrlFetchApp.fetch(`${firestoreBase}/meta/quizzes`, {
+    method: 'patch',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    headers: headersAuth,
+    muteHttpExceptions: true
+  });
+  const status = response.getResponseCode();
+  if (status < 200 || status >= 300) {
+    ui.alert(`Firestore 동기화 실패 (${status}): ${response.getContentText().slice(0, 300)}`);
+    return;
+  }
+  ui.alert(`Firestore 동기화 완료: 퀴즈 ${records.length}개`);
 }
 
 function studentRosterContext_() {

@@ -17,7 +17,6 @@ import { APP_CONFIG } from "./config.js";
 import {
   distanceMeters,
   formatDistance,
-  normalizeQuizRows,
   projectCoordinatesToMap,
   rankNearbyQuizzes,
   safeOwnedRegions,
@@ -25,9 +24,10 @@ import {
 } from "./core.js";
 
 const $ = (id) => document.getElementById(id);
-const mapData = window.KOREA_MAP_DATA || {};
-const MUNIS = mapData.MUNIS || {};
-const PROVINCES = mapData.PROVINCES || {};
+// 전국 시군 경계 좌표(수백 KB)는 지도 탭을 열 때까지 필요 없다. 로그인 직후에는 빈 객체로
+// 시작하고, 실제로 지도 화면에 들어갈 때만 js/map-data.json을 내려받아 채운다.
+let MUNIS = {};
+let PROVINCES = {};
 const search = new URLSearchParams(location.search);
 const IS_LOCAL = ["localhost", "127.0.0.1"].includes(location.hostname) || location.protocol === "file:";
 const PREVIEW_MODE = IS_LOCAL && search.get("preview") === "1";
@@ -46,6 +46,7 @@ const state = {
   canEdit: false,
   studentName: "",
   studentId: "",
+  remoteStudent: null,
   quizzes: [],
   position: null,
   ranked: [],
@@ -58,6 +59,7 @@ const state = {
   photoUploading: false,
   legacyOwnedRegions: new Set(),
   mapPaths: new Map(),
+  mapReady: false,
   selectedMapRegion: null,
   mapAnimationFrame: null,
   mapBaseViewBox: BASE_MAP_VIEWBOX.slice(),
@@ -168,6 +170,7 @@ function switchView(view) {
     if (active) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
+  if (nextView === "map") ensureMapReady();
 }
 
 function navigateToView(view) {
@@ -230,8 +233,8 @@ function showToast(message) {
   state.toastTimer = setTimeout(() => toast.classList.add("hidden"), 2800);
 }
 
-// Files that change between deployments. map-data.js and the icons are static, so a hard
-// refresh leaves them alone rather than re-downloading 188KB of map geometry every time.
+// Files that change between deployments. map-data.json and the icons are static, so a hard
+// refresh leaves them alone rather than re-downloading the map geometry every time.
 const HARD_REFRESH_ASSETS = [
   "./",
   "./index.html",
@@ -308,13 +311,14 @@ function mapRegionIdForQuiz(quiz) {
   return mapRegionIdFor(quiz?.regionId);
 }
 
-async function loadSheetQuizzes() {
+// 선생님이 시트에서 퀴즈를 편집한 뒤 Apps Script 메뉴로 Firestore(meta/quizzes)에 밀어
+// 넣어 두면, 앱은 매번 Apps Script → 시트를 왕복하는 대신 이 문서 하나만 읽는다.
+async function loadFirestoreQuizzes() {
   if (state.preview) return Promise.resolve(PREVIEW_QUIZZES);
-  const response = await loadAppsScriptAction("getQuizzes", { t: Date.now() }, "퀴즈 데이터");
-  if (!response?.success) throw new Error(response?.message || "퀴즈 시트를 읽지 못했습니다.");
-  // Region grouping is defined by the quiz sheet's 지역ID column. Addresses and
-  // coordinates are only location data; they must not rewrite that grouping.
-  return normalizeQuizRows(response);
+  const snapshot = await getDoc(doc(firestore, "meta", "quizzes"));
+  const quizzes = snapshot.exists() ? snapshot.data()?.quizzes : null;
+  if (!Array.isArray(quizzes) || !quizzes.length) throw new Error("Firebase에 퀴즈 데이터가 없습니다.");
+  return quizzes;
 }
 
 const QUIZ_CACHE_KEY = "geoQuestQuizCache:v2";
@@ -349,12 +353,9 @@ function applyLoadedQuizzes() {
 
 async function refreshQuizzes() {
   try {
-    state.quizzes = await loadSheetQuizzes();
+    state.quizzes = await loadFirestoreQuizzes();
     if (!state.preview) saveQuizCache(state.quizzes);
     applyLoadedQuizzes();
-    // A sheet region can have a new name, but it must still map to an SVG boundary.
-    const invalidCount = state.quizzes.filter((quiz) => !MUNIS[mapRegionIdForQuiz(quiz)]).length;
-    if (invalidCount) console.warn(`${invalidCount} quiz rows carry a regionId that is not mapped to the map`);
   } catch (error) {
     console.error("Quiz sheet load failed", error);
     // One failed load on a moving phone must not wipe a list that is already working.
@@ -458,6 +459,7 @@ async function loadProgress() {
       const snapshot = await getDoc(progressDocument());
       if (snapshot.exists()) {
         const remote = snapshot.data();
+        state.remoteStudent = remote.student || null;
         if (!Array.isArray(remote.ownedMissions)) {
           safeOwnedRegions(remote.ownedRegions).forEach((region) => state.legacyOwnedRegions.add(region));
         }
@@ -493,6 +495,76 @@ async function saveProgress() {
     console.warn("Cloud progress save failed; local copy retained", error);
     showToast("기기에 저장했습니다. 클라우드 동기화는 다음에 다시 시도합니다.");
   }
+}
+
+// "강원특별자치도 강릉시"처럼 지역 이름에 도(道) 접두어를 붙이는 데는 시군의 소속 도(prov)
+// 정보만 있으면 되고, 지도 SVG 좌표(d)는 필요 없다. 그 좌표만 뺀 가벼운(15KB 안팎) 메타
+// 데이터는 로그인 직후에 미리 받아서, 지도 탭을 열기 전에도 여권·퀴즈 목록의 지역명이
+// 제대로 표시되게 한다. 무거운 SVG 좌표(d)는 여전히 지도 탭을 열 때만 받는다.
+async function loadMapRegionMeta() {
+  // 같은 세션에서 지도 탭을 이미 열어 전체 좌표(d)가 들어와 있다면 가벼운 메타데이터로
+  // 덮어써서 좌표를 지우면 안 된다 (로그아웃 후 재로그인 같은 경우).
+  if (Object.values(MUNIS).some((muni) => muni.d)) return;
+  try {
+    const response = await fetch("./js/map-region-meta.json");
+    if (!response.ok) throw new Error(`지역 정보 응답 오류 (${response.status})`);
+    const data = await response.json();
+    MUNIS = data.MUNIS || {};
+  } catch (error) {
+    console.warn("Map region metadata load failed", error);
+  }
+}
+
+let mapGeometryPromise = null;
+
+function ensureMapGeometry() {
+  if (!mapGeometryPromise) {
+    mapGeometryPromise = fetch("./js/map-data.json")
+      .then((response) => {
+        if (!response.ok) throw new Error(`지도 데이터 응답 오류 (${response.status})`);
+        return response.json();
+      })
+      .then((data) => {
+        MUNIS = data.MUNIS || {};
+        PROVINCES = data.PROVINCES || {};
+      })
+      .catch((error) => {
+        mapGeometryPromise = null; // 실패 시 다음 지도 탭 진입에서 다시 시도할 수 있게 둔다.
+        throw error;
+      });
+  }
+  return mapGeometryPromise;
+}
+
+let mapReadyPromise = null;
+
+// 지도 탭에 처음 들어갈 때만 좌표를 내려받고 SVG를 그린다. 이후 재진입은 이미 채워진
+// state.mapPaths를 그대로 쓰고, buildMap()을 다시 호출하지 않는다.
+function ensureMapReady() {
+  if (state.mapReady) return Promise.resolve();
+  if (!mapReadyPromise) {
+    const title = $("map-title");
+    const originalTitle = title.textContent;
+    title.textContent = "지도를 불러오는 중...";
+    mapReadyPromise = ensureMapGeometry()
+      .then(() => {
+        buildMap();
+        state.mapReady = true;
+        // A sheet region can have a new name, but it must still map to an SVG boundary.
+        // This can only be checked once the boundary data itself has loaded.
+        const invalidCount = state.quizzes.filter((quiz) => !MUNIS[mapRegionIdForQuiz(quiz)]).length;
+        if (invalidCount) console.warn(`${invalidCount} quiz rows carry a regionId that is not mapped to the map`);
+      })
+      .catch((error) => {
+        console.error("Map geometry load failed", error);
+        showToast("지도 데이터를 불러오지 못했습니다.");
+        mapReadyPromise = null;
+      })
+      .finally(() => {
+        if (title.textContent === "지도를 불러오는 중...") title.textContent = originalTitle;
+      });
+  }
+  return mapReadyPromise;
 }
 
 function buildMap() {
@@ -1697,13 +1769,23 @@ function updateUserUI(permission) {
 
 async function enterApp(permission) {
   setLoading("방문 기록을 불러오는 중...");
-  await Promise.all([loadProgress(), refreshQuizzes()]);
+  await Promise.all([loadProgress(), refreshQuizzes(), loadMapRegionMeta()]);
+  // refreshQuizzes()가 먼저 끝났다면 그 안에서 이미 한 번 렌더링됐을 수 있는데, 그때는
+  // 도(道) 메타데이터가 아직 없었을 수 있다. 세 요청이 모두 끝난 지금 한 번 더 그려서
+  // 지역명에 "강원특별자치도 강릉시"처럼 도 접두어가 확실히 반영되게 한다.
+  applyLoadedQuizzes();
   const migratedProgress = migrateLegacyProgress();
   if (migratedProgress) await saveProgress();
-  buildMap();
   updateUserUI(permission);
-  // 관리자 순위는 이 프로필을 기준으로 학생의 진행 문서를 식별합니다.
-  if (!state.preview) await saveProgress();
+  // 관리자 순위는 이 프로필(student 서브 객체)로 학생의 진행 문서를 식별합니다. 다만 매
+  // 로그인마다 무조건 다시 쓰면 바뀐 게 없어도 Firestore 쓰기가 발생하므로, 이름·학번·
+  // 이메일이 실제로 바뀌었을 때(또는 진행 문서가 아직 없을 때)만 다시 씁니다.
+  const remoteStudent = state.remoteStudent;
+  const studentInfoChanged = !remoteStudent
+    || remoteStudent.name !== state.studentName
+    || remoteStudent.studentId !== state.studentId
+    || remoteStudent.email !== (state.user?.email || "");
+  if (!state.preview && studentInfoChanged) await saveProgress();
   updateProgressUI();
   showScreen("app");
   startLocationWatch();
@@ -1904,8 +1986,9 @@ function bindEvents() {
   $("quest-empty").addEventListener("click", (event) => {
     if (event.target.closest(".empty-locate")) refreshCurrentLocation();
   });
-  $("passport-stamp").addEventListener("click", () => {
+  $("passport-stamp").addEventListener("click", async () => {
     navigateToView("map");
+    await ensureMapReady();
     if (state.passportRegion) zoomToMapRegion(mapRegionIdFor(state.passportRegion));
     else resetMapZoom();
   });
@@ -1944,10 +2027,6 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
-  if (!Object.keys(MUNIS).length) {
-    setLoading("지도 데이터를 읽지 못했습니다.");
-    return;
-  }
   if (state.preview) {
     await handleSignedInUser({ uid: "preview", email: "preview@local", displayName: "미리보기 학생", photoURL: "" });
     return;
