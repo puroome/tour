@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import vm from "node:vm";
 import {
   distanceMeters,
   findRegionByCoordinates,
@@ -12,10 +11,9 @@ import {
   safeOwnedRegions
 } from "../js/core.js";
 
-const mapContext = {};
-vm.createContext(mapContext);
-vm.runInContext(`${readFileSync(new URL("../js/map-data.js", import.meta.url), "utf8")};globalThis.TEST_MUNIS=MUNIS;`, mapContext);
-const TEST_MUNIS = mapContext.TEST_MUNIS;
+// 앱이 실제로 그리는 경계 그대로 확인한다. js/map-data.js 는 관리자 화면용 이름표만 담아
+// 경계 좌표가 없으므로 여기서는 쓰지 않는다.
+const TEST_MUNIS = JSON.parse(readFileSync(new URL("../js/map-data.json", import.meta.url), "utf8")).MUNIS;
 
 test("distanceMeters returns a realistic Seoul-to-Busan distance", () => {
   const meters = distanceMeters(
@@ -79,8 +77,10 @@ test("safeOwnedRegions deduplicates and rejects invalid values", () => {
 test("coordinates project to the real SVG map and resolve the correct municipality", () => {
   const nampyeong = { latitude: 35.044, longitude: 126.839 };
   const projected = projectCoordinatesToMap(nampyeong);
-  assert.ok(projected.x > 267 && projected.x < 269);
-  assert.ok(projected.y > 527 && projected.y < 530);
+  // 지도 경계를 2026년 자료로 다시 만들면서 투영이 람베르트 정각원뿔도법으로 바뀌었다.
+  // 좌표값 자체는 예전과 다르고, 시·군 판정 결과는 그대로다.
+  assert.ok(projected.x > 256 && projected.x < 259);
+  assert.ok(projected.y > 520 && projected.y < 523);
   assert.equal(findRegionByCoordinates(TEST_MUNIS, nampyeong), "나주시");
   assert.equal(findRegionByCoordinates(TEST_MUNIS, { latitude: 35.16, longitude: 126.8526 }), "광주광역시");
 });

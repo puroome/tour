@@ -800,6 +800,15 @@ body { background: #dfe5df; }
 #korea-map .muni:focus-visible { outline: none; stroke: var(--red); stroke-width: 2.6; }
 #korea-map .muni.map-selected { stroke: var(--red); stroke-width: 2.6; }
 #korea-map .muni.owned.map-selected { stroke: #fff; stroke-width: 2.6; }
+/* 읍·면·동은 시·군 칠 위에 반투명하게 얹혀 아래 색이 비치고, 등록된 곳만 따로 칠한다. */
+#korea-map .dong { fill: rgba(255,255,255,.14); stroke: #9fb6ab; stroke-width: .5; vector-effect: non-scaling-stroke; transition: fill .25s; }
+#korea-map .dong.registered { fill: rgba(255,255,255,.55); cursor: pointer; }
+#korea-map .dong.registered:hover { fill: #d7e9df; }
+#korea-map .dong.owned { fill: var(--red); stroke: #fff; }
+#korea-map .dong:focus { outline: none; }
+#korea-map .dong:focus-visible,
+#korea-map .dong.dong-selected { outline: none; stroke: var(--red); stroke-width: 2.2; }
+#korea-map .dong.owned.dong-selected { stroke: #fff; stroke-width: 2.2; }
 #korea-map .quiz-dot { fill: #fff8e8; stroke: var(--orange); stroke-width: 2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 3px rgba(23, 63, 53, .35)); cursor: pointer; }
 #korea-map .quiz-dot.completed { fill: var(--red); stroke: #fff; }
 /* The default focus ring is a rounded box around the dot's bounding area and covers

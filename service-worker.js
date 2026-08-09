@@ -1,4 +1,4 @@
-const CACHE_NAME = "geo-quest-v21";
+const CACHE_NAME = "geo-quest-v24";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -12,9 +12,10 @@ const APP_SHELL = [
   "./js/app.js",
   "./js/config.js",
   "./js/core.js",
-  "./js/map-region-meta.json",
-  "./js/map-data.json"
+  "./js/map-region-meta.json"
 ];
+// js/map-data.json(600KB 안팎)과 js/dong/*.json 은 지도 탭에 들어갈 때만 필요하다. 첫 로딩을
+// 무겁게 하지 않으려고 미리 받지 않고, 아래 fetch 처리기가 한 번 받은 뒤부터 캐시에 남긴다.
 
 self.addEventListener("install", (event) => {
   // Without cache: "reload" a new worker happily fills its fresh cache from the browser's
