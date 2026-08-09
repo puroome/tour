@@ -149,7 +149,8 @@ function showScreen(name) {
   Object.entries(screens).forEach(([key, element]) => element.classList.toggle("hidden", key !== name));
 }
 
-const VIEW_IDS = new Set(["passport", "quests", "map"]);
+const VIEW_ORDER = ["passport", "quests", "map"];
+const VIEW_IDS = new Set(VIEW_ORDER);
 
 function switchView(view) {
   const nextView = VIEW_IDS.has(view) ? view : "passport";
@@ -172,6 +173,38 @@ function navigateToView(view) {
   const nextView = VIEW_IDS.has(view) ? view : "passport";
   if (location.hash !== `#${nextView}`) history.pushState({ view: nextView }, "", `#${nextView}`);
   switchView(nextView);
+}
+
+function setupViewSwipeNavigation() {
+  const shell = $("app-shell");
+  let swipeStart = null;
+  const ignoresSwipe = (target) => target instanceof Element && Boolean(target.closest(
+    ".bottom-nav, #map-stage, input, select, textarea, button, a, [role='button']"
+  ));
+
+  shell.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1 || ignoresSwipe(event.target)) {
+      swipeStart = null;
+      return;
+    }
+    const touch = event.touches[0];
+    swipeStart = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+
+  shell.addEventListener("touchend", (event) => {
+    if (!swipeStart || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - swipeStart.x;
+    const deltaY = touch.clientY - swipeStart.y;
+    swipeStart = null;
+    const threshold = Math.max(52, shell.clientWidth * .14);
+    if (Math.abs(deltaX) < threshold || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+    const currentIndex = VIEW_ORDER.indexOf(state.activeView);
+    const nextIndex = currentIndex + (deltaX < 0 ? 1 : -1);
+    if (nextIndex >= 0 && nextIndex < VIEW_ORDER.length) navigateToView(VIEW_ORDER[nextIndex]);
+  }, { passive: true });
+
+  shell.addEventListener("touchcancel", () => { swipeStart = null; }, { passive: true });
 }
 
 function setLoading(message) {
@@ -1865,6 +1898,7 @@ function bindEvents() {
   });
   $("map-back-button").addEventListener("click", resetMapZoom);
   setupMapGestures();
+  setupViewSwipeNavigation();
   // iOS Safari zooms the page on pinch even with user-scalable=no, so block its
   // proprietary gesture events. Touch events still reach the map's own pinch handler.
   ["gesturestart", "gesturechange", "gestureend"].forEach((type) => {
