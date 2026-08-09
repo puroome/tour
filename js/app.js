@@ -16,7 +16,6 @@ import {
 import { APP_CONFIG } from "./config.js";
 import {
   distanceMeters,
-  findRegionByCoordinates,
   formatDistance,
   normalizeQuizRows,
   projectCoordinatesToMap,
@@ -241,27 +240,6 @@ function updateNetworkStatus() {
   document.body.classList.toggle("is-offline", offline);
 }
 
-function normalizeRegionToken(name) {
-  return String(name || "")
-    .trim()
-    .replaceAll(" ", "")
-    .replace(/특별자치도$|특별자치시$|광역시$|특별시$|자치시$|시$|군$/u, "");
-}
-
-function regionFromAddress(address) {
-  const parts = String(address || "").trim().split(/\s+/).filter(Boolean);
-  const province = parts[0] || "";
-  const addressRegionAliases = {
-    "광주특별시": "광주광역시",
-    "전남광주통합특별시": "광주광역시"
-  };
-  if (addressRegionAliases[province]) return addressRegionAliases[province];
-  if (MUNIS[province]) return province;
-  if (province === "강원특별자치도" && parts[1] === "고성군") return "고성군(강원)";
-  if (province === "경상남도" && parts[1] === "고성군") return "고성군(경남)";
-  return MUNIS[parts[1]] ? parts[1] : "";
-}
-
 function displayCurrentAddress(address) {
   const value = String(address || "").trim();
   const specialCity = /^(?:전남광주통합특별시|광주특별시|광주광역시)\s*(.*)$/u.exec(value);
@@ -270,30 +248,42 @@ function displayCurrentAddress(address) {
   return detail === "광주" || detail.startsWith("광주 ") ? detail : `광주${detail ? ` ${detail}` : ""}`;
 }
 
-function resolveRegionId(regionId, quiz) {
-  const addressRegion = regionFromAddress(quiz?.address);
-  if (addressRegion) return addressRegion;
-  const coordinateRegion = findRegionByCoordinates(MUNIS, quiz);
-  if (coordinateRegion) return coordinateRegion;
-  if (MUNIS[regionId]) return regionId;
-  const token = normalizeRegionToken(regionId);
-  const matches = Object.keys(MUNIS).filter((name) => normalizeRegionToken(name) === token);
-  if (matches.length === 1) return matches[0];
-  return regionId;
+const MAP_REGION_ALIASES = Object.freeze({
+  "광주특별시": "광주광역시",
+  "전남광주통합특별시": "광주광역시"
+});
+
+// The sheet's 지역ID remains the grouping key.  This only translates that key to
+// the legacy boundary name used by the SVG map, so new administrative names do
+// not change passport progress or quiz grouping.
+function mapRegionIdFor(regionId) {
+  const raw = String(regionId || "").trim();
+  if (!raw) return "";
+  if (MAP_REGION_ALIASES[raw]) return MAP_REGION_ALIASES[raw];
+  if (MUNIS[raw]) return raw;
+
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const municipality = parts.at(-1) || "";
+  if (!MUNIS[municipality]) return raw;
+  const province = parts.slice(0, -1).join(" ");
+  if (!province || MUNIS[municipality].prov === province) return municipality;
+  return raw;
 }
 
-function resolveQuizRegions(quizzes) {
-  return quizzes.map((quiz) => ({ ...quiz, regionId: resolveRegionId(quiz.regionId, quiz) }));
+function mapRegionIdForQuiz(quiz) {
+  return mapRegionIdFor(quiz?.regionId);
 }
 
 async function loadSheetQuizzes() {
   if (state.preview) return Promise.resolve(PREVIEW_QUIZZES);
   const response = await loadAppsScriptAction("getQuizzes", { t: Date.now() }, "퀴즈 데이터");
   if (!response?.success) throw new Error(response?.message || "퀴즈 시트를 읽지 못했습니다.");
-  return resolveQuizRegions(normalizeQuizRows(response));
+  // Region grouping is defined by the quiz sheet's 지역ID column. Addresses and
+  // coordinates are only location data; they must not rewrite that grouping.
+  return normalizeQuizRows(response);
 }
 
-const QUIZ_CACHE_KEY = "geoQuestQuizCache:v1";
+const QUIZ_CACHE_KEY = "geoQuestQuizCache:v2";
 const QUIZ_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function saveQuizCache(quizzes) {
@@ -328,10 +318,9 @@ async function refreshQuizzes() {
     state.quizzes = await loadSheetQuizzes();
     if (!state.preview) saveQuizCache(state.quizzes);
     applyLoadedQuizzes();
-    // A regionId the map does not know still opens its quiz but never colours a region,
-    // which is a sheet mistake worth surfacing to whoever opens the console.
-    const invalidCount = state.quizzes.filter((quiz) => !MUNIS[quiz.regionId]).length;
-    if (invalidCount) console.warn(`${invalidCount} quiz rows carry a regionId that is not on the map`);
+    // A sheet region can have a new name, but it must still map to an SVG boundary.
+    const invalidCount = state.quizzes.filter((quiz) => !MUNIS[mapRegionIdForQuiz(quiz)]).length;
+    if (invalidCount) console.warn(`${invalidCount} quiz rows carry a regionId that is not mapped to the map`);
   } catch (error) {
     console.error("Quiz sheet load failed", error);
     // One failed load on a moving phone must not wipe a list that is already working.
@@ -506,8 +495,8 @@ function buildMap() {
 function showMapTooltip(event) {
   const name = event.currentTarget.dataset.name;
   const tooltip = $("map-tooltip");
-  const missionCount = missionsForRegion(name).length;
-  const owned = state.owned.has(name);
+  const missionCount = missionsForMapRegion(name).length;
+  const owned = isMapRegionOwned(name);
   tooltip.textContent = `${displayRegionName(name)} · ${owned ? "지역 완료" : missionCount ? `탐방지 ${missionCount}곳` : "미등록"}`;
   tooltip.classList.remove("hidden");
   moveMapTooltip(event);
@@ -691,7 +680,7 @@ function renderMapRegionSummary() {
     section.classList.add("hidden");
     return;
   }
-  const missions = missionsForRegion(regionId);
+  const missions = missionsForMapRegion(regionId);
   const completed = missions.filter(isMissionOwned).length;
   $("map-region-progress-title").textContent = `${displayRegionName(regionId)} 방문 기록`;
   $("map-region-progress-count").textContent = `${completed}/${missions.length}`;
@@ -751,7 +740,7 @@ function updateMapDots() {
   layer.innerHTML = "";
   const regionId = state.selectedMapRegion;
   const path = state.mapPaths.get(regionId);
-  const missions = missionsForRegion(regionId);
+  const missions = missionsForMapRegion(regionId);
   if (!path || !missions.length) return;
 
   const bbox = path.getBBox();
@@ -794,7 +783,7 @@ function updateMapDots() {
 
 function zoomToMapRegion(name) {
   const path = state.mapPaths.get(name);
-  const missions = missionsForRegion(name);
+  const missions = missionsForMapRegion(name);
   if (!path || !missions.length) {
     showToast("이 지역에는 등록된 퀴즈가 아직 없습니다.");
     return;
@@ -821,17 +810,17 @@ function resetMapZoom() {
 
 function updateMapState({ renderSummary = false } = {}) {
   syncDerivedOwnership();
-  const registered = new Set(uniqueRegions(state.quizzes));
-  const nearby = new Set(state.ranked.filter((quiz) => quiz.inRange).map((quiz) => quiz.regionId));
+  const registered = new Set(state.quizzes.map(mapRegionIdForQuiz).filter(Boolean));
+  const nearby = new Set(state.ranked.filter((quiz) => quiz.inRange).map(mapRegionIdForQuiz).filter(Boolean));
   state.mapPaths.forEach((path, name) => {
     path.classList.toggle("registered", registered.has(name));
-    path.classList.toggle("owned", state.owned.has(name));
+    path.classList.toggle("owned", isMapRegionOwned(name));
     path.classList.toggle("nearby", nearby.has(name));
     path.classList.toggle("map-selected", state.selectedMapRegion === name);
     if (registered.has(name)) {
       path.setAttribute("tabindex", "0");
       path.setAttribute("role", "button");
-      path.setAttribute("aria-label", `${name} 상세 지도 열기`);
+      path.setAttribute("aria-label", `${displayRegionName(name)} 상세 지도 열기`);
     } else {
       path.removeAttribute("tabindex");
       path.removeAttribute("role");
@@ -858,7 +847,10 @@ function updateProgressUI() {
 
 function populatePassportRegionSelect() {
   const select = $("passport-region-select");
-  const regions = uniqueRegions(state.quizzes).sort((a, b) => a.localeCompare(b, "ko"));
+  const regions = uniqueRegions(state.quizzes).sort((a, b) => (
+    displayRegionName(a).localeCompare(displayRegionName(b), "ko")
+    || a.localeCompare(b, "ko")
+  ));
   if (!regions.includes(state.passportRegion)) state.passportRegion = "";
   select.innerHTML = `<option value="">전체 지역</option>${regions.map((region) => (
     `<option value="${escapeHTML(region)}">${escapeHTML(displayRegionName(region))}</option>`
@@ -867,7 +859,11 @@ function populatePassportRegionSelect() {
 }
 
 function displayRegionName(region) {
-  return region === "광주광역시" ? "광주특별시" : region;
+  const raw = String(region || "").trim();
+  const mapRegionId = mapRegionIdFor(raw);
+  if (mapRegionId === "광주광역시") return "광주특별시";
+  const province = MUNIS[mapRegionId]?.prov || "";
+  return province.endsWith("도") ? `${province} ${mapRegionId}` : raw;
 }
 
 function renderPassportThemeStats() {
@@ -1281,6 +1277,15 @@ function missionsForRegion(regionId) {
   return quizMissions().filter((mission) => mission.regionId === regionId);
 }
 
+function missionsForMapRegion(mapRegionId) {
+  return quizMissions().filter((mission) => mapRegionIdForQuiz(mission) === mapRegionId);
+}
+
+function isMapRegionOwned(mapRegionId) {
+  const missions = missionsForMapRegion(mapRegionId);
+  return missions.length > 0 && missions.every(isMissionOwned);
+}
+
 function isMissionOwned(quiz) {
   const key = missionKey(quiz);
   return state.ownedMissions.has(key) && Boolean(state.photoUploads[key]?.url);
@@ -1624,7 +1629,7 @@ function showSuccess(quiz, alreadyOwned) {
       <div class="success-seal">${alreadyOwned ? "복습" : "정답"}</div>
       <p class="eyebrow">정답입니다</p>
       <h2>${escapeHTML(quiz.placeName)}</h2>
-      ${regionCleared ? `<strong class="region-clear-message">${escapeHTML(quiz.regionId)} 지역 완료</strong>` : ""}
+      ${regionCleared ? `<strong class="region-clear-message">${escapeHTML(displayRegionName(quiz.regionId))} 지역 완료</strong>` : ""}
       <p>${escapeHTML(explanation)}</p>
       <button id="success-photo-upload" class="primary-button success-photo-button" type="button">현장 사진 올리기</button>
     </div>`;
@@ -1851,7 +1856,7 @@ function bindEvents() {
   });
   $("passport-stamp").addEventListener("click", () => {
     navigateToView("map");
-    if (state.passportRegion) zoomToMapRegion(state.passportRegion);
+    if (state.passportRegion) zoomToMapRegion(mapRegionIdFor(state.passportRegion));
     else resetMapZoom();
   });
   $("passport-region-select").addEventListener("change", (event) => {
