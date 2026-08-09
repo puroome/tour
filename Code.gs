@@ -365,6 +365,7 @@ function uploadFieldPhoto_(payload) {
   const uploader = verifiedPhotoUploader_(payload.idToken);
   const missionKey = String(payload.missionKey || '').trim();
   if (!missionKey || missionKey.length > 500) throw new Error('장소 정보를 확인할 수 없습니다.');
+  const folderMetadata = verifiedFieldPhotoFolderMetadata_(payload, missionKey);
   const imageData = String(payload.imageData || '').replace(/^data:image\/[^;]+;base64,/i, '');
   if (!imageData || !/^[A-Za-z0-9+/=\s]+$/.test(imageData)) throw new Error('올바른 사진 파일이 필요합니다.');
   const bytes = Utilities.base64Decode(imageData.replace(/\s/g, ''));
@@ -373,15 +374,86 @@ function uploadFieldPhoto_(payload) {
   }
   const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
   const fileName = `${uploader.filePrefix}-${timestamp}.jpg`;
-  const folder = DriveApp.getFolderById(FIELD_PHOTO_FOLDER_ID);
+  const folder = fieldPhotoThemeFolder_(folderMetadata.regionName, folderMetadata.theme);
   const file = folder.createFile(Utilities.newBlob(bytes, 'image/jpeg', fileName));
   return {
     success: true,
     fileName: fileName,
     fileId: file.getId(),
+    folderPath: `${folderMetadata.regionName}/${folderMetadata.theme}`,
     url: `https://drive.google.com/thumbnail?id=${encodeURIComponent(file.getId())}&sz=w1600`,
     uploadedAt: new Date().toISOString()
   };
+}
+
+function verifiedFieldPhotoFolderMetadata_(payload, missionKey) {
+  const spreadsheet = SpreadsheetApp.openById(GEO_QUEST_SHEET_ID);
+  const sheet = spreadsheet.getSheetByName(GEO_QUEST_SHEET_NAME);
+  if (!sheet) throw new Error('quiz 탭을 찾을 수 없습니다.');
+  const values = sheet.getDataRange().getValues();
+  const headers = (values[0] || []).map(value => String(value || '').trim());
+  const indexes = Object.fromEntries(headers.map((header, index) => [header, index]));
+  ['지역ID', '장소명', '테마', '위도', '경도'].forEach(header => {
+    if (indexes[header] === undefined) throw new Error(`quiz 탭에 ${header} 열이 없습니다.`);
+  });
+  const row = values.slice(1).find(value => {
+    const latitude = Number(value[indexes['위도']]);
+    const longitude = Number(value[indexes['경도']]);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+    return [
+      String(value[indexes['장소명']] || '').trim(),
+      latitude.toFixed(5),
+      longitude.toFixed(5)
+    ].join('|') === missionKey;
+  });
+  if (!row) throw new Error('quiz 탭에서 해당 장소를 확인할 수 없습니다.');
+
+  const regionId = String(row[indexes['지역ID']] || '').trim();
+  const theme = String(row[indexes['테마']] || '').trim() || '미분류';
+  const requestedRegionId = String(payload.regionId || '').trim();
+  const requestedRegionName = String(payload.regionName || '').trim();
+  const requestedTheme = String(payload.theme || '').trim() || '미분류';
+  if (requestedRegionId !== regionId || requestedTheme !== theme) {
+    throw new Error('장소의 지역 또는 테마 정보가 변경되었습니다. 앱을 새로고침해 주세요.');
+  }
+  const specialRegionName = ['광주광역시', '광주특별시', '전남광주통합특별시'].includes(regionId)
+    && requestedRegionName === '광주특별시';
+  if (!requestedRegionName || (!specialRegionName
+      && requestedRegionName !== regionId
+      && !requestedRegionName.endsWith(` ${regionId}`))) {
+    throw new Error('지역 폴더명을 확인할 수 없습니다. 앱을 새로고침해 주세요.');
+  }
+  return {
+    regionName: safeDriveFolderName_(requestedRegionName, '미분류 지역'),
+    theme: safeDriveFolderName_(theme, '미분류')
+  };
+}
+
+function safeDriveFolderName_(value, fallback) {
+  const safe = String(value || '')
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^\.+|\.+$/g, '')
+    .trim()
+    .slice(0, 100);
+  return safe || fallback;
+}
+
+function fieldPhotoThemeFolder_(regionName, theme) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const root = DriveApp.getFolderById(FIELD_PHOTO_FOLDER_ID);
+    const regionFolder = getOrCreateChildFolder_(root, regionName);
+    return getOrCreateChildFolder_(regionFolder, theme);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getOrCreateChildFolder_(parent, name) {
+  const folders = parent.getFoldersByName(name);
+  return folders.hasNext() ? folders.next() : parent.createFolder(name);
 }
 
 function authorizeFieldPhotoDrive() {

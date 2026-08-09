@@ -1230,6 +1230,9 @@ async function uploadSelectedFieldPhoto(file) {
         action: "uploadFieldPhoto",
         idToken,
         missionKey: missionKey(mission),
+        regionId: mission.regionId,
+        regionName: displayRegionName(mission.regionId),
+        theme: String(mission.theme || "").trim() || "미분류",
         imageData: await blobToBase64(photo)
       });
       if (!result?.success || !result.url) throw new Error(result?.message || "사진 업로드에 실패했습니다.");
@@ -1237,6 +1240,7 @@ async function uploadSelectedFieldPhoto(file) {
         url: result.url,
         fileId: result.fileId || "",
         fileName: result.fileName || "현장 사진.jpg",
+        folderPath: result.folderPath || "",
         uploadedAt: result.uploadedAt || new Date().toISOString()
       };
     }
