@@ -490,7 +490,7 @@ body { background: #dfe5df; }
   width: min(100%, 480px);
   height: 100svh;
   margin: 0 auto;
-  padding-bottom: 33px;
+  padding-bottom: 50px;
   overflow: hidden;
   background: var(--paper);
   box-shadow: 0 0 48px rgba(23, 63, 53, .18);
@@ -511,8 +511,8 @@ body { background: #dfe5df; }
 .app-view {
   display: none;
   width: 100%;
-  /* 상단 고정바가 없어져서 하단 탭바(33px)만큼만 빼면 됩니다. */
-  height: calc(100svh - 33px);
+  /* 상단 고정바가 없어져서 하단 탭바(50px)만큼만 빼면 됩니다. */
+  height: calc(100svh - 50px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -833,10 +833,10 @@ body { background: #dfe5df; }
   left: 50%;
   bottom: 0;
   width: min(100%, 480px);
-  height: 33px;
+  height: 50px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  padding: 4px max(10px, env(safe-area-inset-left));
+  padding: 6px max(15px, env(safe-area-inset-left));
   border-top: 1px solid var(--line);
   background: rgba(255, 253, 247, .96);
   box-shadow: 0 -8px 24px rgba(23, 63, 53, .08);
@@ -849,16 +849,16 @@ body { background: #dfe5df; }
   color: var(--ink-soft);
   text-align: center;
   text-decoration: none;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 800;
-  border-radius: 12px;
+  border-radius: 18px;
 }
 .bottom-nav a:active { background: rgba(47, 122, 96, .08); }
-.bottom-nav a span { color: var(--ink); font-size: 19px; line-height: 1; }
+.bottom-nav a span { color: var(--ink); font-size: 29px; line-height: 1; }
 .bottom-nav a.active { color: var(--mint-deep); }
 .bottom-nav a.active span { color: var(--orange); }
-.bottom-nav a .nav-icon { width: 22px; height: 22px; display: grid; place-items: center; }
-.bottom-nav a .nav-icon svg { width: 22px; height: 22px; display: block; }
+.bottom-nav a .nav-icon { width: 33px; height: 33px; display: grid; place-items: center; }
+.bottom-nav a .nav-icon svg { width: 33px; height: 33px; display: block; }
 
 #login-screen,
 #permission-request-screen,
