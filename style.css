@@ -490,7 +490,7 @@ body { background: #dfe5df; }
   width: min(100%, 480px);
   height: 100svh;
   margin: 0 auto;
-  padding-bottom: 66px;
+  padding-bottom: 33px;
   overflow: hidden;
   background: var(--paper);
   box-shadow: 0 0 48px rgba(23, 63, 53, .18);
@@ -511,8 +511,8 @@ body { background: #dfe5df; }
 .app-view {
   display: none;
   width: 100%;
-  /* 상단 고정바가 없어져서 하단 탭바(66px)만큼만 빼면 됩니다. */
-  height: calc(100svh - 66px);
+  /* 상단 고정바가 없어져서 하단 탭바(33px)만큼만 빼면 됩니다. */
+  height: calc(100svh - 33px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -530,7 +530,7 @@ body { background: #dfe5df; }
   position: relative;
   width: 100%;
   /* Shorten the card with the title-to-region-picker gap. */
-  min-height: calc(100% - 105px);
+  min-height: calc(100% - 138px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -738,7 +738,7 @@ body { background: #dfe5df; }
 .quest-screen .quest-panel { min-height: 100%; }
 /* The map screen has 10px more bottom padding than the passport screen, so its
    adjustment is offset by 10px to keep both cards exactly the same height. */
-.map-screen .map-card { min-height: calc(100% - 68px); }
+.map-screen .map-card { min-height: calc(100% - 101px); }
 
 .section-heading,
 .section-heading.compact {
@@ -833,10 +833,10 @@ body { background: #dfe5df; }
   left: 50%;
   bottom: 0;
   width: min(100%, 480px);
-  height: 66px;
+  height: 33px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  padding: 6px max(10px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-bottom));
+  padding: 4px max(10px, env(safe-area-inset-left));
   border-top: 1px solid var(--line);
   background: rgba(255, 253, 247, .96);
   box-shadow: 0 -8px 24px rgba(23, 63, 53, .08);
@@ -846,7 +846,6 @@ body { background: #dfe5df; }
 .bottom-nav a {
   display: grid;
   place-content: center;
-  gap: 1px;
   color: var(--ink-soft);
   text-align: center;
   text-decoration: none;
