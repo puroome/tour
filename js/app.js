@@ -614,11 +614,17 @@ function buildMap() {
     path.setAttribute("class", "prov-border");
     svg.appendChild(path);
   }
-  // 읍·면·동은 시·군 칠 위, 장소 점 아래에 얹는다. 선택한 시·군 하나만 들어 있고 칠도
-  // 반투명이라 아래 시·군 색과 도 경계선이 그대로 비친다.
+  // 읍·면·동은 시·군 칠 위, 장소 점 아래에 얹는다. 선택한 시·군 하나만 들어 있고 칠이
+  // 불투명이라, 그 시·군 자리는 읍·면·동 색이 아래 시·군 색을 덮는다.
   const dongLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
   dongLayer.id = "map-dong-layer";
   svg.appendChild(dongLayer);
+  // 선택한 구역의 붉은 테두리만 따로 맨 위에 그린다. 테두리는 경계선 위에 걸쳐 그려지는데,
+  // 읍·면·동 칠이 불투명해지면서 안쪽 절반이 덮여 선이 절반 굵기로 보였다.
+  const outline = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  outline.id = "map-selected-outline";
+  outline.setAttribute("class", "selected-outline");
+  svg.appendChild(outline);
   const dotLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
   dotLayer.id = "map-quiz-dots";
   svg.appendChild(dotLayer);
@@ -887,7 +893,7 @@ function updateMapDots() {
   if (!path || !missions.length) return;
 
   const bbox = path.getBBox();
-  const radius = Math.max(1.4, Math.min(3.25, Math.max(bbox.width, bbox.height) * .0175));
+  const radius = Math.max(.7, Math.min(1.625, Math.max(bbox.width, bbox.height) * .00875));
 
   missions.forEach((mission) => {
     const position = projectCoordinatesToMap(mission);
@@ -1055,7 +1061,8 @@ function zoomToMapRegion(name) {
   const path = state.mapPaths.get(name);
   const missions = missionsForMapRegion(name);
   if (!path || !missions.length) {
-    showToast("이 지역에는 등록된 퀴즈가 아직 없습니다.");
+    // 휴대폰에서는 툴팁이 안 떠서, 어디를 눌렀는지 알 길이 이 안내뿐이다. 지역명을 담는다.
+    showToast(`${displayRegionName(name)}에 등록된 탐방지가 없습니다.`);
     return;
   }
   state.selectedMapRegion = name;
@@ -1073,12 +1080,12 @@ function zoomToDong(code) {
   const path = state.dongPaths.get(code);
   if (!path) return;
   if (!missionsForDong(code).length) {
-    showToast("이 읍·면·동에는 등록된 탐방지가 아직 없습니다.");
+    showToast(`${displayDongName(code)}에 등록된 탐방지가 없습니다.`);
     return;
   }
   state.selectedDong = code;
   zoomToBBox(path);
-  $("map-title").textContent = `${state.selectedMapRegion} ${dongName(code)}`;
+  $("map-title").textContent = displayDongName(code);
   $("map-back-button").setAttribute("aria-label", `${displayRegionName(state.selectedMapRegion)} 지도로 돌아가기`);
   hideMapTooltip();
   updateMapState({ renderSummary: true });
@@ -1115,11 +1122,9 @@ function resetMapZoom() {
 function updateMapState({ renderSummary = false } = {}) {
   syncDerivedOwnership();
   const registered = new Set(state.quizzes.map(mapRegionIdForQuiz).filter(Boolean));
-  const nearby = new Set(state.ranked.filter((quiz) => quiz.inRange).map(mapRegionIdForQuiz).filter(Boolean));
   state.mapPaths.forEach((path, name) => {
     path.classList.toggle("registered", registered.has(name));
     path.classList.toggle("owned", isMapRegionOwned(name));
-    path.classList.toggle("nearby", nearby.has(name));
     path.classList.toggle("map-selected", state.selectedMapRegion === name);
     if (registered.has(name)) {
       path.setAttribute("tabindex", "0");
@@ -1132,8 +1137,20 @@ function updateMapState({ renderSummary = false } = {}) {
     }
   });
   updateDongState();
+  updateSelectedOutline();
   updateMapDots();
   if (renderSummary) renderMapRegionSummary();
+}
+
+// 지금 고른 구역(읍·면·동이 있으면 그것, 없으면 시·군)의 테두리를 맨 위 경로에 옮겨 담는다.
+function updateSelectedOutline() {
+  const outline = $("map-selected-outline");
+  if (!outline) return;
+  const shape = state.selectedDong
+    ? state.dongData?.[state.selectedDong]?.d
+    : state.selectedMapRegion && MUNIS[state.selectedMapRegion]?.d;
+  outline.setAttribute("d", shape || "");
+  outline.classList.toggle("dong-level", Boolean(state.selectedDong));
 }
 
 function updateDongState() {
@@ -1181,12 +1198,41 @@ function populatePassportRegionSelect() {
   select.value = state.passportRegion;
 }
 
-function displayRegionName(region) {
+// 시·도 이름을 줄여 쓰는 표. 마디가 둘 이상 이어질 때만 첫 마디에 쓴다. "전라남도 화순군
+// 사평면"처럼 이어 붙이면 지도 제목이 넘쳐 잘리기 때문이다. 마디가 하나면 그 지역 자체를
+// 가리키는 이름이라 줄이지 않는다("서울특별시"는 그대로).
+const SHORT_REGION_NAMES = {
+  "서울특별시": "서울", "광주특별시": "광주", "대구광역시": "대구", "인천광역시": "인천",
+  "부산광역시": "부산", "울산광역시": "울산", "대전광역시": "대전", "세종특별자치시": "세종시",
+  "경상남도": "경남", "경상북도": "경북", "충청남도": "충남", "충청북도": "충북",
+  "전라남도": "전남", "전북특별자치도": "전북",
+  "강원특별자치도": "강원도", "제주특별자치도": "제주도"
+};
+
+function joinRegionParts(parts) {
+  const kept = parts.map((part) => String(part || "").trim()).filter(Boolean);
+  if (kept.length < 2) return kept.join(" ");
+  return [SHORT_REGION_NAMES[kept[0]] || kept[0], ...kept.slice(1)].join(" ");
+}
+
+// 시·군을 이루는 마디. 도(道) 아래면 [도, 시·군], 광역시면 [광역시] 하나뿐이다.
+function mapRegionParts(region) {
   const raw = String(region || "").trim();
   const mapRegionId = mapRegionIdFor(raw);
-  if (mapRegionId === "광주광역시") return "광주특별시";
+  if (mapRegionId === "광주광역시") return ["광주특별시"];
   const province = MUNIS[mapRegionId]?.prov || "";
-  return province.endsWith("도") ? `${province} ${mapRegionId}` : raw;
+  return province.endsWith("도") ? [province, mapRegionId] : [raw];
+}
+
+function displayRegionName(region) {
+  return joinRegionParts(mapRegionParts(region));
+}
+
+// 읍·면·동까지 들어간 자리의 전체 이름. 광역시는 자치구를 사이에 넣어 어느 구인지 밝힌다.
+function displayDongName(code) {
+  const dong = state.dongData?.[code];
+  if (!dong) return "";
+  return joinRegionParts([...mapRegionParts(state.selectedMapRegion), dong.g, dong.n]);
 }
 
 function renderPassportThemeStats() {
