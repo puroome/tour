@@ -14,6 +14,10 @@
   --blue: #2563a8;
   --shadow: 0 22px 60px rgba(35, 57, 49, .12);
   --radius: 24px;
+  /* 하단 탭바가 차지하는 높이. 홈 인디케이터나 제스처 바가 있는 기기에서는 그만큼을 더
+     확보해야 탭바가 시스템 UI에 가리지 않는다. index.html의 viewport-fit=cover가 전제이며,
+     안전영역이 없는 기기에서는 env()가 0px이라 그대로 50px이 된다. */
+  --nav-height: calc(50px + env(safe-area-inset-bottom, 0px));
 }
 
 * { box-sizing: border-box; }
@@ -284,16 +288,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 .location-status.active .status-icon { color: #fff; border-color: var(--mint-deep); background: var(--mint-deep); }
 .location-status.error .status-icon { color: #fff; border-color: var(--red); background: var(--red); }
 
-.passport-card {
-  position: relative;
-  overflow: hidden;
-  min-height: 260px;
-  color: #f8f2df;
-  border-radius: 24px;
-  background: var(--ink);
-  box-shadow: 0 26px 55px rgba(23,63,53,.22);
-  transform: rotate(1.5deg);
-}
+/* .passport-card의 겉모양(색·모서리·그림자·기울기)은 아래 "Mobile passport layout" 구역에서
+   전부 다시 정의하므로 여기서는 따로 두지 않는다. */
 .passport-body { position: relative; z-index: 1; display: grid; grid-template-columns: 130px 1fr; gap: 25px; align-items: center; padding: 29px 25px; }
 .passport-stamp { width: 126px; height: 126px; display: grid; place-content: center; padding: 0; cursor: pointer; border: 2px solid var(--orange-soft); border-radius: 50%; box-shadow: inset 0 0 0 5px var(--ink), inset 0 0 0 6px rgba(248,210,185,.45); color: inherit; background: transparent; text-align: center; }
 .passport-stamp span { font-family: "Gowun Dodum", serif; font-size: 49px; line-height: 1; }
@@ -435,7 +431,6 @@ footer p { margin: 0; }
   .route-illustration { bottom: 25px; height: 150px; }
   .login-card { padding: 58px 45px; }
   .hero-section { grid-template-columns: 1fr; gap: 42px; }
-  .passport-card { width: min(430px, 100%); }
   .content-grid { grid-template-columns: 1fr; }
   .quest-panel { min-height: 0; }
   .empty-state { min-height: 300px; }
@@ -457,7 +452,6 @@ footer p { margin: 0; }
   .hero-copy > p:not(.eyebrow) { font-size: 15px; }
   .hero-actions { display: grid; }
   .primary-button, .secondary-button { width: 100%; }
-  .passport-card { transform: none; }
   .passport-body { grid-template-columns: 105px 1fr; gap: 18px; }
   .passport-stamp { width: 105px; height: 105px; }
   .passport-stamp span { font-size: 40px; }
@@ -490,7 +484,7 @@ body { background: #dfe5df; }
   width: min(100%, 480px);
   height: 100svh;
   margin: 0 auto;
-  padding-bottom: 50px;
+  padding-bottom: var(--nav-height);
   overflow: hidden;
   background: var(--paper);
   box-shadow: 0 0 48px rgba(23, 63, 53, .18);
@@ -511,8 +505,8 @@ body { background: #dfe5df; }
 .app-view {
   display: none;
   width: 100%;
-  /* 상단 고정바가 없어져서 하단 탭바(50px)만큼만 빼면 됩니다. */
-  height: calc(100svh - 50px);
+  /* 상단 고정바가 없어져서 하단 탭바(안전영역 포함)만큼만 빼면 됩니다. */
+  height: calc(100svh - var(--nav-height));
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -529,8 +523,10 @@ body { background: #dfe5df; }
   --passport-foil: #eef0fb;
   position: relative;
   width: 100%;
-  /* Shorten the card with the title-to-region-picker gap. */
-  min-height: calc(100% - 138px);
+  /* 카드가 하단 탭바 바로 위까지 채우게 둔다. 예전에는 여기서 138px을 빼서 카드를 일부러
+     짧게 만들었는데, 화면이 긴 기기에서 카드 아래에 그만큼 빈 공간이 남았다. 남는 높이는
+     .passport-body가 흡수한다(flex: 1 0 auto). */
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -661,7 +657,9 @@ body { background: #dfe5df; }
   min-height: 340px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  /* 카드가 화면 높이를 채우면서 이 영역이 늘어나므로, 지역 선택과 통계를 위로 몰지 않고
+     늘어난 공간 한가운데에 둔다. */
+  justify-content: center;
   gap: 18px;
   padding: 29px 34px 20px;
 }
@@ -833,10 +831,12 @@ body { background: #dfe5df; }
   left: 50%;
   bottom: 0;
   width: min(100%, 480px);
-  height: 50px;
+  height: var(--nav-height);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  padding: 6px max(15px, env(safe-area-inset-left));
+  /* 아래 여백에 안전영역을 더해, 홈 인디케이터·제스처 바 위로 아이콘을 밀어 올린다.
+     높이도 같은 값만큼 커지므로 아이콘이 놓이는 실제 영역(38px)은 그대로다. */
+  padding: 6px max(15px, env(safe-area-inset-left, 0px)) calc(6px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
   background: rgba(255, 253, 247, .96);
   box-shadow: 0 -8px 24px rgba(23, 63, 53, .08);
