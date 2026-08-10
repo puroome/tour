@@ -11,10 +11,15 @@
   --orange-soft: #f8d2b9;
   --gold: #e7b84d;
   --red: #b95043;
-  /* 지도 칠 두 단계. --red 를 흰색에 섞어 만든 파스텔이라 같은 계열로 읽히고, 옅은 쪽과
-     진한 쪽이 한눈에 구별될 만큼은 벌려 뒀다. */
-  --quiz-soft: #f4d5cf;
-  --quiz-done: #d9948a;
+  /* 지도 칠 두 단계. 앱의 기본색인 민트 계열을 밝기만 크게 벌려 쓴다. 지도는 초록, 그 위에
+     얹히는 마커·선택선은 주황/빨강이라 색상환에서 서로 반대편에 놓이고, 덕분에 점이 칠에
+     묻히지 않는다. 두 단계의 밝기 대비는 약 2.8:1로 옅은 쪽과 진한 쪽이 한눈에 갈린다. */
+  --quiz-soft: #a5ddc2;
+  --quiz-done: #2f8f6c;
+  /* 고른 구역의 테두리. 흰 칠·옅은 민트·진한 초록 어디에 얹혀도 읽히도록 짙은 잉크색에
+     흰 테를 둘러 쓴다. 단색 한 가지로는 세 단계 모두와 대비를 낼 수 없다. */
+  --map-select: #123c31;
+  --map-select-halo: rgba(255, 255, 255, .95);
   --blue: #2563a8;
   --shadow: 0 22px 60px rgba(35, 57, 49, .12);
   --radius: 24px;
@@ -328,16 +333,18 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(237, 139, 82, .4
 /* The map owns every touch inside it. Anything looser (pan-y) lets the browser claim the
    gesture on the first finger, after which touchmove is no longer cancelable and the
    two-finger pinch never reaches the handler. Panning and zooming are done in JS. */
-.map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d8ded7; border-radius: 19px; background: #eaf0eb; touch-action: none; }
-.map-stage::before { content: ""; position: absolute; inset: 0; opacity: .52; background-image: linear-gradient(rgba(47,122,96,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(47,122,96,.07) 1px, transparent 1px); background-size: 28px 28px; }
+/* 배경은 땅이 초록으로 바뀐 만큼 서늘한 청회색으로 물린다. 같은 초록 계열이면 옅은 민트로
+   칠한 시·군이 배경에 붙어 윤곽이 흐려진다. */
+.map-stage { position: relative; height: 635px; overflow: hidden; border: 1px solid #d5dde3; border-radius: 19px; background: #e9eef2; touch-action: none; }
+.map-stage::before { content: ""; position: absolute; inset: 0; opacity: .52; background-image: linear-gradient(rgba(45,84,104,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(45,84,104,.07) 1px, transparent 1px); background-size: 28px 28px; }
 #korea-map { position: relative; width: 100%; height: 100%; padding: 18px; filter: drop-shadow(0 10px 12px rgba(23,63,53,.12)); }
-/* 칠은 세 단계뿐이다: 탐방지가 없으면 흰색, 시트에 등록된 탐방지가 있으면 옅은 파스텔
-   빨강, 그 지역 탐방지를 모두 마치면 진한 파스텔 빨강. 시·군과 읍·면·동에 같은 규칙을
-   쓴다. 테두리 색은 어느 단계에서나 같아야 경계선이 한 줄로 이어져 보인다. */
-#korea-map .muni { fill: #fff; stroke: #bacbc2; stroke-width: .72; vector-effect: non-scaling-stroke; transition: fill .25s, opacity .25s, filter .25s; }
+/* 칠은 세 단계뿐이다: 탐방지가 없으면 아이보리, 시트에 등록된 탐방지가 있으면 옅은 민트,
+   그 지역 탐방지를 모두 마치면 진한 초록. 시·군과 읍·면·동에 같은 규칙을 쓴다. 테두리
+   색은 어느 단계에서나 같아야 경계선이 한 줄로 이어져 보인다. */
+#korea-map .muni { fill: #fdfcf8; stroke: #c2cfc9; stroke-width: .72; vector-effect: non-scaling-stroke; transition: fill .25s, opacity .25s, filter .25s; }
 #korea-map .muni.registered { fill: var(--quiz-soft); }
 #korea-map .muni.owned { fill: var(--quiz-done); }
-#korea-map .prov-border { fill: none; stroke: #78998b; stroke-width: 1.25; pointer-events: none; vector-effect: non-scaling-stroke; }
+#korea-map .prov-border { fill: none; stroke: #6d8f83; stroke-width: 1.25; pointer-events: none; vector-effect: non-scaling-stroke; }
 .map-caption { position: absolute; left: 14px; bottom: 12px; padding: 6px 9px; border-radius: 8px; background: rgba(255,253,247,.84); color: #748780; font-size: 9px; }
 .map-tooltip { position: fixed; z-index: 30; pointer-events: none; padding: 7px 10px; border-radius: 9px; color: #fff; background: rgba(23,63,53,.92); box-shadow: 0 8px 20px rgba(23,63,53,.18); font-size: 11px; }
 
@@ -796,18 +803,19 @@ body { background: #dfe5df; }
 /* The browser draws its focus ring around the path's bounding box, which reads as a
    thick rounded rectangle over the map. Suppress it and signal focus with the stroke. */
 #korea-map .muni:focus { outline: none; }
-#korea-map .muni:focus-visible { outline: none; stroke: var(--red); stroke-width: 2.6; }
-#korea-map .muni.map-selected { stroke: var(--red); stroke-width: 2.6; }
+#korea-map .muni:focus-visible { outline: none; stroke: var(--map-select); stroke-width: 2.6; }
+#korea-map .muni.map-selected { stroke: var(--map-select); stroke-width: 2.6; }
 /* 읍·면·동은 아래 시·군 칠을 가리고 제 색을 낸다. 반투명이면 시·군 색이 비쳐 섞여서,
    이 구역에 탐방지가 있는지 없는지가 색만으로 안 읽힌다. */
-#korea-map .dong { fill: #fff; stroke: #9fb6ab; stroke-width: .5; vector-effect: non-scaling-stroke; transition: fill .25s; }
+#korea-map .dong { fill: #fdfcf8; stroke: #9fb6ab; stroke-width: .5; vector-effect: non-scaling-stroke; transition: fill .25s; }
 #korea-map .dong.registered { fill: var(--quiz-soft); cursor: pointer; }
 #korea-map .dong.owned { fill: var(--quiz-done); }
 #korea-map .dong:focus { outline: none; }
 #korea-map .dong:focus-visible,
-#korea-map .dong.dong-selected { outline: none; stroke: var(--red); stroke-width: 2.2; }
-/* 고른 구역의 테두리. 읍·면·동 칠보다 위에 그려야 굵기가 깎이지 않는다. */
-#korea-map .selected-outline { fill: none; stroke: var(--red); stroke-width: 2.6; pointer-events: none; vector-effect: non-scaling-stroke; }
+#korea-map .dong.dong-selected { outline: none; stroke: var(--map-select); stroke-width: 2.2; }
+/* 고른 구역의 테두리. 읍·면·동 칠보다 위에 그려야 굵기가 깎이지 않는다. 흰 테는 진한 초록
+   위에서 짙은 선이 묻히지 않게 하는 장치라 두 번 겹쳐 얇게 두른다. */
+#korea-map .selected-outline { fill: none; stroke: var(--map-select); stroke-width: 2.6; pointer-events: none; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 1.4px var(--map-select-halo)) drop-shadow(0 0 1.4px var(--map-select-halo)); }
 #korea-map .selected-outline.dong-level { stroke-width: 2.2; }
 #korea-map .quiz-dot { fill: #fff8e8; stroke: var(--orange); stroke-width: 1; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 3px rgba(23, 63, 53, .35)); cursor: pointer; }
 #korea-map .quiz-dot.completed { fill: var(--red); stroke: #fff; }
@@ -1051,7 +1059,7 @@ body { background: #dfe5df; }
 
 .map-theme-group { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: rgba(255, 253, 247, .72); }
 .map-theme-group + .map-theme-group { margin-top: 8px; }
-.map-theme-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; cursor: pointer; border: 0; color: var(--ink); background: linear-gradient(to left, #f2c9d0 0 var(--theme-completion, 0%), transparent var(--theme-completion, 0%) 100%); font: inherit; font-size: 13px; font-weight: 800; text-align: left; transition: background .25s ease; }
+.map-theme-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; cursor: pointer; border: 0; color: var(--ink); background: linear-gradient(to left, #cfeadb 0 var(--theme-completion, 0%), transparent var(--theme-completion, 0%) 100%); font: inherit; font-size: 13px; font-weight: 800; text-align: left; transition: background .25s ease; }
 .map-theme-toggle::before { content: "›"; margin-right: 5px; color: var(--orange); font-size: 17px; transition: transform .2s ease; }
 .map-theme-toggle span { flex: 1; }
 .map-theme-toggle small { color: var(--ink-soft); font-size: 10px; }
@@ -1059,7 +1067,9 @@ body { background: #dfe5df; }
 .map-theme-toggle.active::before { transform: rotate(90deg); }
 .map-theme-place-list { display: grid; gap: 8px; max-height: 0; overflow: hidden; padding: 0; transition: max-height .2s ease-out; }
 .map-theme-place-list.open { max-height: none; padding: 9px; }
-.map-place-item.completed { border-color: #e3a4ad; background: #f6d8dd; }
+/* 완료 표시는 지도 칠과 같은 초록 계열로 맞춘다. 이 목록만 분홍으로 남으면 같은 "완료"가
+   화면마다 다른 색으로 보인다. .quest-item.owned 도 이미 초록을 쓴다. */
+.map-place-item.completed { border-color: #9fd3b8; background: #ddf0e5; }
 .map-place-name { overflow: hidden; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 390px) {
