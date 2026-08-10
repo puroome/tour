@@ -884,6 +884,10 @@ function renderMapRegionSummary() {
   section.classList.remove("hidden");
 }
 
+// 3단계 점 반지름은 동 도형 크기에 이 비율을 곱해 정한다. 확대 배율이 도형 크기에 반비례해서
+// 커지므로, 비례한 반지름을 쓰면 화면상 지름은 어느 동이든 viewport의 약 8%로 일정해진다.
+const DONG_DOT_RATIO = .045;
+
 function updateMapDots() {
   const layer = $("map-quiz-dots");
   if (!layer) return;
@@ -893,7 +897,13 @@ function updateMapDots() {
   if (!path || !missions.length) return;
 
   const bbox = path.getBBox();
-  const radius = Math.max(.7, Math.min(1.625, Math.max(bbox.width, bbox.height) * .00875));
+  const span = Math.max(bbox.width, bbox.height);
+  // 읍·면·동은 도형이 작아 시·군용 최소 반지름 .7이 늘 그대로 걸린다. 그런데 3단계는 동마다
+  // 확대 배율이 달라서, 같은 반지름이라도 좁은 동일수록 화면에서는 점이 더 크게 보인다.
+  // 여기서만 도형 크기에 비례한 값을 써서 어느 동을 열어도 점이 같은 크기로 보이게 한다.
+  const radius = state.selectedDong
+    ? span * DONG_DOT_RATIO
+    : Math.max(.7, Math.min(1.625, span * .00875));
 
   missions.forEach((mission) => {
     const position = projectCoordinatesToMap(mission);
@@ -1049,10 +1059,48 @@ function loadDongLayer(name) {
     });
 }
 
-function zoomToBBox(path) {
+// 시·군은 9라는 최소 여백이 있어도 도형 자체가 커서 티가 안 나지만, 읍·면·동은 폭이 몇
+// 단위밖에 안 되는 곳이 많아 같은 여백을 두면 화면의 대부분이 빈 바다가 된다. 단계마다
+// 도형 크기에 비례한 여백만 준다.
+const MAP_REGION_PADDING = { ratio: .24, min: 9 };
+const DONG_PADDING = { ratio: .06, min: 0 };
+
+// SVG는 viewBox를 화면 안에 넣기만 해서(preserveAspectRatio 기본값), 지역과 화면의 가로세로
+// 비율이 다르면 짧은 쪽에 여백이 남는다. 그 남는 만큼 미리 상자를 넓혀 두면 확대 배율은
+// 그대로면서 pan/pinch 기준(state.mapBaseViewBox)이 실제로 보이는 범위와 맞아떨어진다.
+function mapViewportAspect() {
+  const svg = $("korea-map");
+  const rect = svg.getBoundingClientRect();
+  const style = getComputedStyle(svg);
+  const width = rect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const height = rect.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+  if (!(width > 0) || !(height > 0)) return 0;
+  return width / height;
+}
+
+function zoomToBBox(path, rule) {
   const bbox = path.getBBox();
-  const padding = Math.max(9, Math.max(bbox.width, bbox.height) * .24);
-  const target = [bbox.x - padding, bbox.y - padding, bbox.width + padding * 2, bbox.height + padding * 2];
+  const { ratio, min } = rule || MAP_REGION_PADDING;
+  const padding = Math.max(min, Math.max(bbox.width, bbox.height) * ratio);
+  let [x, y, width, height] = [
+    bbox.x - padding,
+    bbox.y - padding,
+    bbox.width + padding * 2,
+    bbox.height + padding * 2
+  ];
+  const aspect = mapViewportAspect();
+  if (aspect && width > 0 && height > 0) {
+    if (width / height < aspect) {
+      const fitted = height * aspect;
+      x -= (fitted - width) / 2;
+      width = fitted;
+    } else {
+      const fitted = width / aspect;
+      y -= (fitted - height) / 2;
+      height = fitted;
+    }
+  }
+  const target = [x, y, width, height];
   state.mapBaseViewBox = target.slice();
   animateMapViewBox(target);
 }
@@ -1084,7 +1132,7 @@ function zoomToDong(code) {
     return;
   }
   state.selectedDong = code;
-  zoomToBBox(path);
+  zoomToBBox(path, DONG_PADDING);
   $("map-title").textContent = displayDongName(code);
   $("map-back-button").setAttribute("aria-label", `${displayRegionName(state.selectedMapRegion)} 지도로 돌아가기`);
   hideMapTooltip();
