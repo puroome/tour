@@ -77,6 +77,9 @@ const state = {
   dongMissionIndex: null,
   mapAnimationFrame: null,
   mapBaseViewBox: BASE_MAP_VIEWBOX.slice(),
+  // 로그인 직후 GPS로 알아낸 지금 있는 시·군. 여권의 지역 선택과 지도 첫 화면(2단계)의
+  // 기본값으로 함께 쓴다.
+  locatedMapRegion: "",
   watchId: null,
   currentQuiz: null,
   passportRegion: "",
@@ -517,10 +520,16 @@ async function saveProgress() {
 // 정보만 있으면 되고, 지도 SVG 좌표(d)는 필요 없다. 그 좌표만 뺀 가벼운(15KB 안팎) 메타
 // 데이터는 로그인 직후에 미리 받아서, 지도 탭을 열기 전에도 여권·퀴즈 목록의 지역명이
 // 제대로 표시되게 한다. 무거운 SVG 좌표(d)는 여전히 지도 탭을 열 때만 받는다.
+// 전국 시·군 경계(d)까지 들어와 있는지. 가벼운 메타데이터(js/map-region-meta.json)에는
+// 이름·도·중심점만 있고 경계는 js/map-data.json에만 있다.
+function hasMapGeometry() {
+  return Object.values(MUNIS).some((muni) => muni.d);
+}
+
 async function loadMapRegionMeta() {
   // 같은 세션에서 지도 탭을 이미 열어 전체 좌표(d)가 들어와 있다면 가벼운 메타데이터로
   // 덮어써서 좌표를 지우면 안 된다 (로그아웃 후 재로그인 같은 경우).
-  if (Object.values(MUNIS).some((muni) => muni.d)) return;
+  if (hasMapGeometry()) return;
   try {
     const response = await fetch("./js/map-region-meta.json");
     if (!response.ok) throw new Error(`지역 정보 응답 오류 (${response.status})`);
@@ -567,6 +576,7 @@ function ensureMapReady() {
       .then(() => {
         buildMap();
         state.mapReady = true;
+        applyDefaultMapRegion();
         // A sheet region can have a new name, but it must still map to an SVG boundary.
         // This can only be checked once the boundary data itself has loaded.
         const invalidCount = state.quizzes.filter((quiz) => !MUNIS[mapRegionIdForQuiz(quiz)]).length;
@@ -1105,12 +1115,14 @@ function zoomToBBox(path, rule) {
   animateMapViewBox(target);
 }
 
-function zoomToMapRegion(name) {
+// auto는 학생이 누른 게 아니라 앱이 현재 위치를 보고 알아서 들어가는 경우다. 그때는 등록된
+// 탐방지가 없어도 지금 있는 지역을 보여주는 편이 맞고, 누르지도 않은 안내를 띄우지 않는다.
+function zoomToMapRegion(name, { auto = false } = {}) {
   const path = state.mapPaths.get(name);
   const missions = missionsForMapRegion(name);
-  if (!path || !missions.length) {
+  if (!path || (!missions.length && !auto)) {
     // 휴대폰에서는 툴팁이 안 떠서, 어디를 눌렀는지 알 길이 이 안내뿐이다. 지역명을 담는다.
-    showToast(`${displayRegionName(name)}에 등록된 탐방지가 없습니다.`);
+    if (!auto) showToast(`${displayRegionName(name)}에 등록된 탐방지가 없습니다.`);
     return;
   }
   state.selectedMapRegion = name;
@@ -1165,6 +1177,15 @@ function resetMapZoom() {
   $("map-title").textContent = "방문 지도";
   $("map-back-button").classList.add("hidden");
   updateMapState({ renderSummary: true });
+}
+
+// 로그인할 때 GPS로 알아낸 시·군을 지도의 기본 화면으로 삼는다. 전국(1단계)이 아니라 그
+// 지역(2단계)에 이미 들어가 있는 상태로 지도 탭이 열린다. 지도는 탭에 처음 들어갈 때 한 번만
+// 그려지므로 이 기본값도 그때 한 번 적용되고, 그 뒤 학생이 고른 지역은 덮지 않는다.
+function applyDefaultMapRegion() {
+  const name = state.locatedMapRegion;
+  if (!name || state.selectedMapRegion || !state.mapPaths.has(name)) return;
+  zoomToMapRegion(name, { auto: true });
 }
 
 function updateMapState({ renderSummary = false } = {}) {
@@ -1388,9 +1409,31 @@ function shouldRerenderForPosition(previous) {
   return distanceMeters(previous, state.position) >= RENDER_MIN_MOVE_METERS;
 }
 
+// 로그인 직후 첫 좌표 하나만 기다리는 자리. 좌표가 들어오거나 위치 확인이 실패하면 곧바로
+// 깨어난다.
+let firstFixWaiters = [];
+
+function notifyFirstFix() {
+  if (!firstFixWaiters.length) return;
+  const waiters = firstFixWaiters;
+  firstFixWaiters = [];
+  waiters.forEach((resolve) => resolve(state.position));
+}
+
+function waitForFirstFix(timeoutMs) {
+  if (state.position) return Promise.resolve(state.position);
+  return new Promise((resolve) => {
+    firstFixWaiters.push(resolve);
+    // 실내나 위치 권한 거부처럼 좌표도 오류도 오지 않는 경우가 있다. 앱은 열려야 하므로
+    // 이만큼 기다린 뒤에는 좌표 없이 넘어간다.
+    setTimeout(() => resolve(state.position), timeoutMs);
+  });
+}
+
 function handleLocation(position) {
   const previous = state.position;
   state.position = positionFromGeolocation(position);
+  notifyFirstFix();
   const accuracy = Math.round(state.position.accuracy || 0);
   const addressDistance = state.addressOrigin ? distanceMeters(state.position, state.addressOrigin) : Number.POSITIVE_INFINITY;
   if (state.currentAddress && addressDistance < 500) {
@@ -1419,6 +1462,8 @@ function handleLocation(position) {
 function handleLocationError(error) {
   const wasRefreshRequested = state.locationRefreshRequested;
   state.locationRefreshRequested = false;
+  // 권한을 거부했다면 좌표는 끝내 오지 않는다. 로그인 화면을 제한 시간까지 붙잡지 않는다.
+  notifyFirstFix();
   const button = $("location-button");
   button.disabled = false;
   button.setAttribute("aria-busy", "false");
@@ -1492,6 +1537,56 @@ function refreshCurrentLocation() {
     handleLocationError,
     { ...APP_CONFIG.locationWatchOptions, maximumAge: 15000 }
   );
+}
+
+// 로그인 직후 첫 좌표를 기다리는 시간.
+const INITIAL_FIX_TIMEOUT_MS = 8000;
+// 좌표가 어느 시·군 안인지 정확히 가리려면 전국 경계(js/map-data.json, 약 700KB)가 필요하다.
+// 지도 탭에서 어차피 받는 자료지만, 첫 로딩에서 이만큼 안에 도착하지 않으면 여권을 더 붙잡지
+// 않고 시·군 중심점으로 가늠한다.
+const INITIAL_GEOMETRY_TIMEOUT_MS = 4000;
+
+// 경계가 아직 없을 때 쓰는 대략적인 판정. 메타데이터에 들어 있는 시·군 중심점(cx, cy) 중
+// 가장 가까운 곳을 고른다. 경계선 근처에서는 옆 시·군이 나올 수 있다.
+function nearestMapRegionByCentroid(position) {
+  const point = projectCoordinatesToMap(position);
+  if (!point) return "";
+  let best = "";
+  let bestGap = Number.POSITIVE_INFINITY;
+  for (const [name, muni] of Object.entries(MUNIS)) {
+    if (!Number.isFinite(muni?.cx) || !Number.isFinite(muni?.cy)) continue;
+    const gap = (muni.cx - point.x) ** 2 + (muni.cy - point.y) ** 2;
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = name;
+    }
+  }
+  return best;
+}
+
+// 로그인 → GPS → 첫 화면 순서를 만드는 자리. 첫 좌표로 지금 있는 시·군을 알아내 여권의 지역
+// 목록을 그 지역으로 골라 두고, 지도 탭의 기본 화면도 같은 지역(2단계)으로 남긴다.
+async function applyInitialRegionFromLocation() {
+  const geometry = ensureMapGeometry().catch(() => {});
+  const position = await waitForFirstFix(INITIAL_FIX_TIMEOUT_MS);
+  if (!position) return;
+  await Promise.race([geometry, new Promise((resolve) => setTimeout(resolve, INITIAL_GEOMETRY_TIMEOUT_MS))]);
+  const mapRegionId = hasMapGeometry()
+    ? nearestRegionByCoordinates(MUNIS, position)
+    : nearestMapRegionByCentroid(position);
+  if (!mapRegionId || !MUNIS[mapRegionId]) return;
+  state.locatedMapRegion = mapRegionId;
+  // 여권의 지역 목록에는 탐방지가 등록된 지역만 들어 있다. 지금 지역에 등록된 곳이 없으면
+  // "전체 지역"인 채로 두고, 지도만 그 지역으로 들어간다.
+  const region = uniqueRegions(state.quizzes).find((item) => mapRegionIdFor(item) === mapRegionId);
+  if (region) {
+    state.passportRegion = region;
+    populatePassportRegionSelect();
+    updateProgressUI();
+  }
+  // 로그아웃 뒤 다시 로그인한 경우처럼 지도가 이미 그려져 있으면 여기서 바로 옮긴다. 첫
+  // 로그인에서는 아직 그려지기 전이라 지도 탭에 처음 들어갈 때 적용된다.
+  applyDefaultMapRegion();
 }
 
 function startFieldPhotoCapture(mission) {
@@ -2093,8 +2188,12 @@ async function enterApp(permission) {
     || remoteStudent.email !== (state.user?.email || "");
   if (!state.preview && studentInfoChanged) await saveProgress();
   updateProgressUI();
-  showScreen("app");
+  // 로그인 다음 차례는 GPS다. 첫 좌표로 지금 있는 시·군을 알아낸 뒤에 여권을 열어야, 지역
+  // 목록과 지도가 처음부터 그 지역을 가리킨 상태로 보인다.
+  setLoading("현재 위치를 확인하는 중...");
   startLocationWatch();
+  await applyInitialRegionFromLocation();
+  showScreen("app");
   const initialView = "passport";
   if (location.hash !== "#passport") {
     history.replaceState({ view: initialView }, "", `${location.pathname}${location.search}#passport`);
@@ -2249,6 +2348,10 @@ async function logout() {
   state.owned.clear();
   state.ownedMissions.clear();
   state.legacyOwnedRegions.clear();
+  // 다음 학생은 자기 위치에서 다시 시작해야 한다. 앞 사람의 지역이 남아 있으면 안 된다.
+  state.passportRegion = "";
+  state.locatedMapRegion = "";
+  if (state.mapReady) resetMapZoom();
   if (state.preview) {
     location.href = location.pathname;
     return;
